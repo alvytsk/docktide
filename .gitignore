@@ -1,0 +1,22 @@
+# Dependencies and build output
+node_modules/
+dist/
+target/
+
+# Tauri generated capability schemas
+src-tauri/gen/schemas/
+
+# Logs
+*.log
+
+# Local overrides
+*.local
+.env*.local
+
+# Editors and OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.DS_Store
+*.sw?

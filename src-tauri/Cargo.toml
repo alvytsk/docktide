@@ -1,0 +1,25 @@
+[package]
+name = "docktide"
+description = "Linux-first Docker manager with integrated monitoring"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lib]
+# The `_lib` suffix keeps the lib name distinct from the bin name,
+# see https://github.com/rust-lang/cargo/issues/8519
+name = "docktide_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build.workspace = true
+
+[dependencies]
+docktide-core.workspace = true
+tauri.workspace = true
+
+[lints]
+workspace = true
