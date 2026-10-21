@@ -301,8 +301,10 @@ Each slice ends with a working, checked state. Stop for review after S1.
 - No live updates: changes made outside Docktide appear on refresh or window focus.
 - Connection status uses a 10 s ping poll (replaced by the event stream in M1).
 - A single endpoint per app session; no context switcher.
-- Long stop timeouts block that row's actions until Docker returns. Bollard's
-  default request timeout is 120 s.
+- Long stop timeouts block that row's actions until Docker returns. Stop and
+  restart requests time out after 1 hour; all other requests after 120 s.
+- Engine info (version, counts) is fetched once per connection; later polls only
+  ping, so a daemon upgraded between two polls shows its old version until a reconnect.
 - Docker's `stopping` state is shown as `unknown`. A state string that Bollard does
   not know fails deserialization of the whole list instead of mapping to `unknown`.
 
@@ -326,21 +328,21 @@ Run on 2026-10-21 on the dev host: Ubuntu 26.04.1, kernel 7.0, niri (Wayland), D
 Engine 29.9.2 (rootful, default socket), Rust 1.99.1, Node 24.19, pnpm 11.28.
 Screens were checked from window captures of a debug build under XWayland.
 
-| ID    | Result                  | Evidence                                                                                                                                                                                                                               |
-| ----- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| AC-1  | Verified, not visually  | `pnpm tauri dev` without `GDK_BACKEND`: the process connects to the compositor socket `wayland-1`, has no X11 connection or XWayland window, and its WebKit web process runs. The window itself was not captured.                      |
-| AC-2  | Verified under XWayland | `GDK_BACKEND=x11` window captures of every state below. A native X11 session is **unverified** (none available).                                                                                                                       |
-| AC-3  | Verified                | Indicator shows "Connected, Engine 29.9.2". The ignored `connects_pings_and_negotiates` test passes. The tooltip with endpoint, source, and API versions is **unverified on screen** (no pointer input available to hover it).         |
-| AC-4  | Verified                | List matched `docker ps -a` for one running container (wildcard IPv4 and IPv6 ports shown once) plus labelled created and exited test containers. `list_includes_the_test_container` passes.                                           |
-| AC-5  | Partly verified         | `start_stop_restart_transitions` and `operations_on_a_removed_container_are_not_found` pass, including repeated start and stop (HTTP 304). Clicking the row buttons is **unverified**: injected XTest clicks did not reach the window. |
-| AC-6  | Verified                | `DOCKER_HOST=unix:///tmp/docktide-nonexistent.sock`: "Docker is not running at …" with the `systemctl` hint, no crash.                                                                                                                 |
-| AC-7  | Verified                | User-owned listening socket with mode `000`: "Permission denied for …" with the `docker` group and rootless hint, no crash.                                                                                                            |
-| AC-8  | Verified by simulation  | Scratch `DOCKER_CONFIG`: switching `currentContext` to a context with a missing socket showed "Disconnected" 11 s later, and switching back showed "Connected" 11 s later. The real daemon was not stopped.                            |
-| AC-9  | Verified                | `ps -o user` shows the app running as the login user. No `sudo`, `pkexec`, or process spawning in the code; capabilities grant only `core:default` and the five app commands.                                                          |
-| AC-10 | Verified                | `cargo fmt --check` and `cargo clippy --workspace --all-targets -- -D warnings` are clean. `cargo test --workspace`: 51 passed, 4 ignored; with `--ignored`: 4 passed, no labelled containers left.                                    |
-| AC-11 | Verified                | `vp check` reports no warnings or errors, `vp test run` passes 18 tests, `pnpm typecheck` passes. The originally listed `tsc --noEmit` checks nothing here (the root config has `"files": []`), so AC-11 now names `pnpm typecheck`.   |
-| AC-12 | Verified                | README covers requirements, endpoint selection, prerequisites, setup, dev, checks, Docker tests, binding regeneration, and error-state simulation.                                                                                     |
-| AC-13 | Verified                | `DOCKER_HOST=tcp://127.0.0.1:2375`: "Remote endpoints are not supported yet: tcp://127.0.0.1:2375".                                                                                                                                    |
+| ID    | Result                  | Evidence                                                                                                                                                                                                                                                                                                             |
+| ----- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-1  | Verified, not visually  | `pnpm tauri dev` without `GDK_BACKEND`: the process connects to the compositor socket `wayland-1`, has no X11 connection or XWayland window, and its WebKit web process runs. The window itself was not captured.                                                                                                    |
+| AC-2  | Verified under XWayland | `GDK_BACKEND=x11` window captures of every state below. A native X11 session is **unverified** (none available).                                                                                                                                                                                                     |
+| AC-3  | Verified                | Indicator shows "Connected, Engine 29.9.2". The ignored `connects_pings_and_negotiates` test passes. The tooltip with endpoint, source, and API versions is **unverified on screen** (no pointer input available to hover it).                                                                                       |
+| AC-4  | Verified                | List matched `docker ps -a` for one running container (wildcard IPv4 and IPv6 ports shown once) plus labelled created and exited test containers. `list_includes_the_test_container` passes.                                                                                                                         |
+| AC-5  | Partly verified         | `start_stop_restart_transitions` and `operations_on_a_removed_container_are_not_found` pass, including repeated start and stop (HTTP 304). Clicking the row buttons is **unverified**: injected XTest clicks did not reach the window.                                                                               |
+| AC-6  | Verified                | `DOCKER_HOST=unix:///tmp/docktide-nonexistent.sock`: "Docker is not running at …" with the `systemctl` hint, no crash.                                                                                                                                                                                               |
+| AC-7  | Verified                | User-owned listening socket with mode `000`: "Permission denied for …" with the `docker` group and rootless hint, no crash.                                                                                                                                                                                          |
+| AC-8  | Verified by simulation  | Scratch `DOCKER_CONFIG`: switching `currentContext` to a context with a missing socket showed "Disconnected" 11 s later, and switching back showed "Connected" 11 s later. A fake Engine killed mid-session showed "Disconnected" 11 s later and "Connected" 11 s after restarting. The real daemon was not stopped. |
+| AC-9  | Verified                | `ps -o user` shows the app running as the login user. No `sudo`, `pkexec`, or process spawning in the code; capabilities grant only `core:default` and the five app commands.                                                                                                                                        |
+| AC-10 | Verified                | `cargo fmt --check` and `cargo clippy --workspace --all-targets -- -D warnings` are clean. `cargo test --workspace`: 54 passed, 4 ignored; with `--ignored`: 4 passed, no labelled containers left.                                                                                                                  |
+| AC-11 | Verified                | `vp check` reports no warnings or errors, `vp test run` passes 18 tests, `pnpm typecheck` passes. The originally listed `tsc --noEmit` checks nothing here (the root config has `"files": []`), so AC-11 now names `pnpm typecheck`.                                                                                 |
+| AC-12 | Verified                | README covers requirements, endpoint selection, prerequisites, setup, dev, checks, Docker tests, binding regeneration, and error-state simulation.                                                                                                                                                                   |
+| AC-13 | Verified                | `DOCKER_HOST=tcp://127.0.0.1:2375`: "Remote endpoints are not supported yet: tcp://127.0.0.1:2375".                                                                                                                                                                                                                  |
 
 Deviations from the plan made during implementation:
 
@@ -354,3 +356,6 @@ Deviations from the plan made during implementation:
 - TanStack Query's focus manager listens to window `focus` and `blur`, because
   page visibility does not change when a desktop window loses focus.
 - The port protocol is exported as its own `Protocol` type; the shape matches §4.
+- Engine 25 compatibility is covered by a fake Engine (API 1.44) in
+  `tests/failures.rs`. Bollard sends unversioned request paths, which older daemons
+  accept; the test fails if that changes.
