@@ -7,7 +7,7 @@ use bollard::models::{
 use bollard::query_parameters::ListContainersOptions;
 use serde::Serialize;
 
-use crate::connection::DockerService;
+use crate::connection::{DockerService, LIFECYCLE_TIMEOUT};
 use crate::error::DockerError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -93,6 +93,7 @@ impl DockerService {
     pub async fn stop_container(&self, id: &str) -> Result<(), DockerError> {
         let (endpoint, docker) = self.docker().await?;
         docker
+            .with_timeout(LIFECYCLE_TIMEOUT)
             .stop_container(id, None)
             .await
             .map_err(|err| self.failed(&err, &endpoint))
@@ -102,6 +103,7 @@ impl DockerService {
     pub async fn restart_container(&self, id: &str) -> Result<(), DockerError> {
         let (endpoint, docker) = self.docker().await?;
         docker
+            .with_timeout(LIFECYCLE_TIMEOUT)
             .restart_container(id, None)
             .await
             .map_err(|err| self.failed(&err, &endpoint))

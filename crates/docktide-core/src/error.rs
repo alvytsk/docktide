@@ -131,7 +131,11 @@ impl DockerError {
     pub(crate) fn from_bollard(err: &BollardError, endpoint: &str) -> Self {
         let io_kind = match err {
             BollardError::RequestTimeoutError => return Self::Timeout,
-            BollardError::SocketNotFoundError(_) => Some(io::ErrorKind::NotFound),
+            // Bollard checks `Path::exists`, which is also false when a parent
+            // directory cannot be searched.
+            BollardError::SocketNotFoundError(path) => Some(
+                std::fs::metadata(path).map_or_else(|err| err.kind(), |_| io::ErrorKind::NotFound),
+            ),
             BollardError::DockerResponseServerError {
                 status_code,
                 message,

@@ -19,6 +19,11 @@ pub const MIN_API_VERSION: ClientVersion = ClientVersion {
 /// Bollard's default request timeout, in seconds.
 const REQUEST_TIMEOUT_SECS: u64 = 120;
 
+/// Stop and restart wait for the container's `StopTimeout`, so they get longer.
+// ponytail: fixed; a StopTimeout above ~59 min still times out. Read it from
+// inspect if such containers show up.
+pub(crate) const LIFECYCLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3600);
+
 #[derive(Debug, Serialize)]
 #[serde(
     tag = "state",
@@ -37,11 +42,14 @@ pub enum ConnectionStatus {
     },
 }
 
+/// The endpoint, its client, and the engine info fetched once per connection.
+type Cached = (ResolvedEndpoint, Docker, Option<EngineInfo>);
+
 /// Owns the Bollard client. It connects lazily and drops the client after a
 /// connection-level failure, so the next request reconnects.
 #[derive(Debug, Default)]
 pub struct DockerService {
-    client: Mutex<Option<(ResolvedEndpoint, Docker)>>,
+    client: Mutex<Option<Cached>>,
 }
 
 impl DockerService {
@@ -72,15 +80,34 @@ impl DockerService {
         }
     }
 
+    /// Polls with `/_ping` once `/info` and `/version` were fetched for this connection.
+    // ponytail: the Engine version and counts stay as fetched until a reconnect, so a
+    // daemon upgraded between two polls shows its old version; M1's events fix that.
     async fn engine_info(&self, endpoint: &ResolvedEndpoint) -> Result<EngineInfo, DockerError> {
         let docker = self.client(endpoint).await?;
+        if let Some(engine) = self.cached_engine(endpoint) {
+            docker
+                .ping()
+                .await
+                .map_err(|err| self.failed(&err, endpoint))?;
+            return Ok(engine);
+        }
         let (info, version) = tokio::try_join!(docker.info(), docker.version())
             .map_err(|err| self.failed(&err, endpoint))?;
-        Ok(EngineInfo::from_docker(
-            info,
-            version,
-            docker.client_version().to_string(),
-        ))
+        let engine = EngineInfo::from_docker(info, version, docker.client_version().to_string());
+        if let Some((cached, _, slot)) = self.cached().as_mut()
+            && cached == endpoint
+        {
+            *slot = Some(engine.clone());
+        }
+        Ok(engine)
+    }
+
+    fn cached_engine(&self, endpoint: &ResolvedEndpoint) -> Option<EngineInfo> {
+        self.cached()
+            .as_ref()
+            .filter(|(cached, ..)| cached == endpoint)
+            .and_then(|(.., engine)| engine.clone())
     }
 
     /// The current endpoint and its client, for a request whose failure is classified by `failed`.
@@ -92,13 +119,13 @@ impl DockerService {
 
     /// The cached client for `endpoint`, or a newly connected and negotiated one.
     async fn client(&self, endpoint: &ResolvedEndpoint) -> Result<Docker, DockerError> {
-        if let Some((cached, docker)) = self.cached().as_ref()
+        if let Some((cached, docker, _)) = self.cached().as_ref()
             && cached == endpoint
         {
             return Ok(docker.clone());
         }
         let docker = connect(endpoint).await?;
-        *self.cached() = Some((endpoint.clone(), docker.clone()));
+        *self.cached() = Some((endpoint.clone(), docker.clone(), None));
         Ok(docker)
     }
 
@@ -111,7 +138,7 @@ impl DockerService {
         error
     }
 
-    fn cached(&self) -> MutexGuard<'_, Option<(ResolvedEndpoint, Docker)>> {
+    fn cached(&self) -> MutexGuard<'_, Option<Cached>> {
         self.client.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
