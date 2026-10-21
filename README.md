@@ -2,13 +2,19 @@
 
 A modern, lightweight, Linux-first Docker manager with integrated real-time monitoring.
 
-> **Status: pre-alpha.** Milestone M0 (foundation) is in progress. Nothing is usable yet.
+> **Status: pre-alpha.** Milestone M0 (foundation) is complete. Expect rough edges.
 
 ## Features
 
-Planned for M0: connection status, a container list, and start, stop, and restart.
-See the [M0 specification](docs/specifications/m0-foundation.md) and the
-[roadmap](docs/architecture/overview.md#10-roadmap-tentative).
+- Connection status for the local Docker Engine: Engine and API version, endpoint,
+  and a plain explanation when Docker is unreachable or the socket is not accessible.
+- Container list (running and stopped) with name, image, state, status, and ports,
+  filterable by text and state.
+- Start, stop, and restart.
+
+Changes made outside Docktide appear on refresh or when the window regains focus;
+live updates come in M1. See the [M0 specification](docs/specifications/m0-foundation.md)
+and the [roadmap](docs/architecture/overview.md#10-roadmap-tentative).
 
 ## Requirements
 
@@ -17,6 +23,17 @@ See the [M0 specification](docs/specifications/m0-foundation.md) and the
 - Your user must be able to open the Docker socket. Docktide never runs as root.
   Membership in the `docker` group is equivalent to root access on the host;
   [rootless Docker](https://docs.docker.com/engine/security/rootless/) is the safer option.
+
+### Which Docker Engine Docktide uses
+
+Docktide follows the Docker CLI, so it talks to the same Engine as `docker`:
+
+1. `DOCKER_HOST`, if set.
+2. `DOCKER_CONTEXT`, if set and not `default`.
+3. The current context in `~/.docker/config.json` (or `$DOCKER_CONFIG`), if not `default`.
+4. `/var/run/docker.sock`, or `$XDG_RUNTIME_DIR/docker.sock` (rootless) if only that exists.
+
+Only local `unix://` sockets are supported for now.
 
 ## Development
 
@@ -35,12 +52,14 @@ See the [M0 specification](docs/specifications/m0-foundation.md) and the
   `libayatana-appindicator3-dev`, `librsvg2-dev`, and `libxdo-dev`. See
   [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/#linux).
 
-### Run
+### Setup and run
 
 ```sh
 pnpm install
 pnpm tauri dev
 ```
+
+The first run compiles the Rust workspace, which takes a few minutes.
 
 ### Checks
 
@@ -55,9 +74,28 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-Tests that need a running Docker Engine are marked `#[ignore]` and run with
-`cargo test --workspace -- --ignored`. They only touch containers they create
-themselves (label `io.docktide.test=true`).
+Tests that need a running Docker Engine are marked `#[ignore]`:
+
+```sh
+cargo test --workspace -- --ignored
+```
+
+They only touch containers they create themselves (label `io.docktide.test=true`)
+and remove them afterwards. They pull `busybox:latest` if it is not present.
+
+The TypeScript types in `src/bindings/` are generated from the Rust types. A test
+fails when they are stale; regenerate them with:
+
+```sh
+DOCKTIDE_UPDATE_BINDINGS=1 cargo test -p docktide-core bindings
+```
+
+To see the error states without touching your Docker setup:
+
+```sh
+DOCKER_HOST=unix:///tmp/docktide-nonexistent.sock pnpm tauri dev   # Docker not running
+DOCKER_HOST=tcp://127.0.0.1:2375 pnpm tauri dev                     # unsupported endpoint
+```
 
 ## Architecture
 

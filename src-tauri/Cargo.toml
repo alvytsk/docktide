@@ -20,6 +20,7 @@ tauri-build.workspace = true
 [dependencies]
 docktide-core.workspace = true
 tauri.workspace = true
+tracing-subscriber = "0.3"
 
 [lints]
 workspace = true

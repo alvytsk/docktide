@@ -5,7 +5,13 @@ import { defineConfig } from "vite-plus";
 
 const host = process.env.TAURI_DEV_HOST;
 
-const generated = ["dist/**", "src-tauri/**", "target/**", "src/bindings/**"];
+const generated = [
+  "dist/**",
+  "src-tauri/**",
+  "target/**",
+  "src/bindings/**",
+  "crates/*/testdata/**",
+];
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
