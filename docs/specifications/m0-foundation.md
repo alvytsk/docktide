@@ -1,6 +1,6 @@
 # M0: Project foundation
 
-- Status: **Approved**, S6 in progress
+- Status: **Approved**, implemented. Verification results are in §11.
 - Date: 2026-10-20
 - Related: [Architecture overview](../architecture/overview.md), [ADR 0001](../architecture/decisions/0001-initial-architecture.md)
 
@@ -229,21 +229,21 @@ States:
 
 ## 6. Acceptance criteria
 
-| ID    | Criterion                                                                                                                                          | Verification                                                                                                                      |
-| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| AC-1  | `pnpm tauri dev` opens the app on Linux under Wayland                                                                                              | manual, dev host (Wayland session)                                                                                                |
-| AC-2  | App runs under X11                                                                                                                                 | manual with `GDK_BACKEND=x11` (XWayland). A native X11 session is **unverified** unless tested.                                   |
-| AC-3  | Connection indicator shows Engine version, negotiated API version, endpoint, and source                                                            | manual + core integration test                                                                                                    |
-| AC-4  | List shows running and stopped containers matching `docker ps -a` (names, images, states, ports)                                                   | manual comparison + integration test                                                                                              |
-| AC-5  | Start, stop, and restart work, and the list reflects the new state without manual refresh                                                          | integration tests on Docktide-owned test containers + manual                                                                      |
-| AC-6  | Unreachable daemon shows `daemonUnavailable` with a hint, without a crash                                                                          | `DOCKER_HOST=unix:///nonexistent.sock pnpm tauri dev`                                                                             |
-| AC-7  | Permission problem shows `permissionDenied` with a hint, without a crash                                                                           | `DOCKER_HOST` pointing to a user-owned socket with mode `000` (see §7.3)                                                          |
-| AC-8  | Daemon going away mid-session moves status to disconnected within about 10 s, and back to connected after recovery                                 | simulated by switching endpoints; stopping the real daemon is optional, needs maintainer consent, and is otherwise **unverified** |
-| AC-9  | App runs as a normal user, never invokes `sudo` or `pkexec`, and requests no elevated privileges                                                   | code review + process check (`ps -o user`)                                                                                        |
-| AC-10 | `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` pass                                    | command output                                                                                                                    |
-| AC-11 | `pnpm exec vp check` (format, lint, type check on TypeScript 7) and `pnpm exec vp test run` pass; `pnpm exec tsc --noEmit` passes as a cross-check | command output                                                                                                                    |
-| AC-12 | README documents prerequisites, setup, dev, test, and Docker-test commands                                                                         | review                                                                                                                            |
-| AC-13 | A non-`unix://` `DOCKER_HOST` shows `unsupportedEndpoint`                                                                                          | `DOCKER_HOST=tcp://127.0.0.1:2375`                                                                                                |
+| ID    | Criterion                                                                                                                                                  | Verification                                                                                                                      |
+| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| AC-1  | `pnpm tauri dev` opens the app on Linux under Wayland                                                                                                      | manual, dev host (Wayland session)                                                                                                |
+| AC-2  | App runs under X11                                                                                                                                         | manual with `GDK_BACKEND=x11` (XWayland). A native X11 session is **unverified** unless tested.                                   |
+| AC-3  | Connection indicator shows Engine version, negotiated API version, endpoint, and source                                                                    | manual + core integration test                                                                                                    |
+| AC-4  | List shows running and stopped containers matching `docker ps -a` (names, images, states, ports)                                                           | manual comparison + integration test                                                                                              |
+| AC-5  | Start, stop, and restart work, and the list reflects the new state without manual refresh                                                                  | integration tests on Docktide-owned test containers + manual                                                                      |
+| AC-6  | Unreachable daemon shows `daemonUnavailable` with a hint, without a crash                                                                                  | `DOCKER_HOST=unix:///nonexistent.sock pnpm tauri dev`                                                                             |
+| AC-7  | Permission problem shows `permissionDenied` with a hint, without a crash                                                                                   | `DOCKER_HOST` pointing to a user-owned socket with mode `000` (see §7.3)                                                          |
+| AC-8  | Daemon going away mid-session moves status to disconnected within about 10 s, and back to connected after recovery                                         | simulated by switching endpoints; stopping the real daemon is optional, needs maintainer consent, and is otherwise **unverified** |
+| AC-9  | App runs as a normal user, never invokes `sudo` or `pkexec`, and requests no elevated privileges                                                           | code review + process check (`ps -o user`)                                                                                        |
+| AC-10 | `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` pass                                            | command output                                                                                                                    |
+| AC-11 | `pnpm exec vp check` (format, lint, type check on TypeScript 7) and `pnpm exec vp test run` pass; `pnpm typecheck` (`tsc --build`) passes as a cross-check | command output                                                                                                                    |
+| AC-12 | README documents prerequisites, setup, dev, test, and Docker-test commands                                                                                 | review                                                                                                                            |
+| AC-13 | A non-`unix://` `DOCKER_HOST` shows `unsupportedEndpoint`                                                                                                  | `DOCKER_HOST=tcp://127.0.0.1:2375`                                                                                                |
 
 Any criterion not verified in the implementation session is reported as **unverified**
 with the reason.
@@ -303,6 +303,8 @@ Each slice ends with a working, checked state. Stop for review after S1.
 - A single endpoint per app session; no context switcher.
 - Long stop timeouts block that row's actions until Docker returns. Bollard's
   default request timeout is 120 s.
+- Docker's `stopping` state is shown as `unknown`. A state string that Bollard does
+  not know fails deserialization of the whole list instead of mapping to `unknown`.
 
 ## 10. Decisions
 
@@ -317,3 +319,38 @@ Resolved on 2026-10-20 (recorded in ADR 0001):
 Resolved in S5:
 
 6. Image for integration tests: `busybox:latest`, pulled if absent.
+
+## 11. Verification
+
+Run on 2026-10-21 on the dev host: Ubuntu 26.04.1, kernel 7.0, niri (Wayland), Docker
+Engine 29.9.2 (rootful, default socket), Rust 1.99.1, Node 24.19, pnpm 11.28.
+Screens were checked from window captures of a debug build under XWayland.
+
+| ID    | Result                  | Evidence                                                                                                                                                                                                                               |
+| ----- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-1  | Verified, not visually  | `pnpm tauri dev` without `GDK_BACKEND`: the process connects to the compositor socket `wayland-1`, has no X11 connection or XWayland window, and its WebKit web process runs. The window itself was not captured.                      |
+| AC-2  | Verified under XWayland | `GDK_BACKEND=x11` window captures of every state below. A native X11 session is **unverified** (none available).                                                                                                                       |
+| AC-3  | Verified                | Indicator shows "Connected, Engine 29.9.2". The ignored `connects_pings_and_negotiates` test passes. The tooltip with endpoint, source, and API versions is **unverified on screen** (no pointer input available to hover it).         |
+| AC-4  | Verified                | List matched `docker ps -a` for one running container (wildcard IPv4 and IPv6 ports shown once) plus labelled created and exited test containers. `list_includes_the_test_container` passes.                                           |
+| AC-5  | Partly verified         | `start_stop_restart_transitions` and `operations_on_a_removed_container_are_not_found` pass, including repeated start and stop (HTTP 304). Clicking the row buttons is **unverified**: injected XTest clicks did not reach the window. |
+| AC-6  | Verified                | `DOCKER_HOST=unix:///tmp/docktide-nonexistent.sock`: "Docker is not running at …" with the `systemctl` hint, no crash.                                                                                                                 |
+| AC-7  | Verified                | User-owned listening socket with mode `000`: "Permission denied for …" with the `docker` group and rootless hint, no crash.                                                                                                            |
+| AC-8  | Verified by simulation  | Scratch `DOCKER_CONFIG`: switching `currentContext` to a context with a missing socket showed "Disconnected" 11 s later, and switching back showed "Connected" 11 s later. The real daemon was not stopped.                            |
+| AC-9  | Verified                | `ps -o user` shows the app running as the login user. No `sudo`, `pkexec`, or process spawning in the code; capabilities grant only `core:default` and the five app commands.                                                          |
+| AC-10 | Verified                | `cargo fmt --check` and `cargo clippy --workspace --all-targets -- -D warnings` are clean. `cargo test --workspace`: 51 passed, 4 ignored; with `--ignored`: 4 passed, no labelled containers left.                                    |
+| AC-11 | Verified                | `vp check` reports no warnings or errors, `vp test run` passes 18 tests, `pnpm typecheck` passes. The originally listed `tsc --noEmit` checks nothing here (the root config has `"files": []`), so AC-11 now names `pnpm typecheck`.   |
+| AC-12 | Verified                | README covers requirements, endpoint selection, prerequisites, setup, dev, checks, Docker tests, binding regeneration, and error-state simulation.                                                                                     |
+| AC-13 | Verified                | `DOCKER_HOST=tcp://127.0.0.1:2375`: "Remote endpoints are not supported yet: tcp://127.0.0.1:2375".                                                                                                                                    |
+
+Deviations from the plan made during implementation:
+
+- `ts-rs` is a dev-dependency and its derives are `cfg(test)` instead of behind a
+  `ts` cargo feature (ADR 0001 D8). The drift test then runs in a plain
+  `cargo test --workspace`, and the app never compiles `ts-rs`.
+- `ConnectionStatus::Disconnected` carries the serialized `IpcError` rather than
+  `DockerError`, so the core types serialize over IPC directly.
+- Toasts use Base UI Toast rather than Sonner, because Sonner injects a `<style>`
+  element at runtime, which the release CSP (`style-src 'self'`) blocks.
+- TanStack Query's focus manager listens to window `focus` and `blur`, because
+  page visibility does not change when a desktop window loses focus.
+- The port protocol is exported as its own `Protocol` type; the shape matches §4.
