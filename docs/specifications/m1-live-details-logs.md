@@ -38,20 +38,24 @@ Non-goals (explicitly deferred):
 
 ### FR-1 Events supervisor
 
-`DockerService` owns one events task for the app session. It starts when the
-first subscriber arrives and stops when the last one leaves.
+`DockerService` runs at most one events task. `subscribe_live_updates` starts
+it and replaces a previous one; cancelling the subscription, or a closed sink,
+stops it.
 
-- Request: `GET /events` with `filters={"type":["container"]}` and no `since`.
+- Request: `GET /events` with `filters={"type":["container"]}` and `since` set to
+  the time just before the connectivity check. Events between the check, the
+  frontend's refetch, and the stream actually opening are then replayed rather
+  than lost; a duplicate only causes an extra refetch.
 - Lifecycle:
 
-  | Situation                                                          | Supervisor behaviour                                                                                          |
-  | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
-  | Stream opened                                                      | Emit `connected`. Reset backoff.                                                                              |
-  | Stream errors or ends (EOF on daemon shutdown)                     | Classify with `DockerService::failed` (drops the client if connection-level), emit `disconnected`.            |
-  | No client available                                                | Retry after a capped exponential backoff: 1, 2, 4, 8, 16, 30, 30, … s. Each attempt re-resolves the endpoint. |
-  | The cached client changes (new endpoint, or a reconnect elsewhere) | Restart the stream on the new client and emit `connected` once it opens.                                      |
-  | A `connection_status` call succeeds while the supervisor backs off | Retry now instead of waiting out the backoff.                                                                 |
-  | Cancelled (last subscriber gone)                                   | Drop the stream; emit nothing.                                                                                |
+  | Situation                                                          | Supervisor behaviour                                                                                                                                                                                                                       |
+  | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+  | Client available and the Engine answers a ping                     | Emit `connected`, reset backoff, open the stream. (Bollard yields nothing until the first event, so the ping, not the stream, proves connectivity.)                                                                                        |
+  | Stream errors or ends                                              | Emit `disconnected` and drop the client, so the next status check reconnects and reports the truth. A clean end, or a transport error without a Docker response (hyper reports a cut body without an `io::Error`), is `daemonUnavailable`. |
+  | No client available                                                | Emit `disconnected` once (only state changes are reported), then retry after a capped exponential backoff: 1, 2, 4, 8, 16, 30, 30, … s. Each attempt re-resolves the endpoint.                                                             |
+  | The cached client changes (new endpoint, or a reconnect elsewhere) | Restart the stream on the new client and emit `connected`.                                                                                                                                                                                 |
+  | A `connection_status` call connects while the supervisor backs off | Retry now instead of waiting out the backoff.                                                                                                                                                                                              |
+  | Cancelled                                                          | Drop the stream; emit nothing.                                                                                                                                                                                                             |
 
   The client-change signal is a generation counter in `DockerService` (a
   `tokio::sync::watch`), bumped whenever the cached client is replaced or dropped.
@@ -425,8 +429,7 @@ Same rules as M0 §7.2: only containers labelled `io.docktide.test=true`, remove
 by a drop guard.
 
 - Events: starting and stopping a test container produces `containersChanged`
-  with its id within 2 s; the hint never names an unlabelled container that did
-  not change.
+  with its id within 2 s.
 - Inspect: a test container with a port, a named volume, a bind mount from a
   scratch directory, env, labels, and a healthcheck maps as expected; a removed id
   is `notFound`.
@@ -436,7 +439,9 @@ by a drop guard.
 
 ### 7.3 Fake Engine tests (`tests/failures.rs`)
 
-- The events stream ends → `disconnected`; the Engine comes back → `connected`.
+- The events stream ends cleanly or is cut → `disconnected`, then `connected`
+  after the first retry; an Engine that appears later → `connected`; a successful
+  status check ends the backoff early; a new subscriber replaces the old one.
 - An idle events stream stays open past a shortened request timeout.
 - `close_logs` and cancellation close the Engine connection.
 

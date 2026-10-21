@@ -2,13 +2,16 @@
 //! They must never touch containers without the `io.docktide.test=true` label.
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use bollard::models::ContainerCreateBody;
 use bollard::query_parameters::{
     CreateContainerOptions, CreateImageOptions, RemoveContainerOptions,
 };
 use bollard::{API_DEFAULT_VERSION, Docker};
-use docktide_core::{ConnectionStatus, ContainerState, DockerError, DockerService, endpoint};
+use docktide_core::{
+    ConnectionStatus, ContainerState, DockerError, DockerService, LiveUpdate, endpoint,
+};
 use futures_util::TryStreamExt;
 
 const IMAGE: &str = "busybox:latest";
@@ -157,4 +160,36 @@ async fn operations_on_a_removed_container_are_not_found() {
     ] {
         assert!(matches!(result, Err(DockerError::NotFound)), "{result:?}");
     }
+}
+
+/// Waits for a `containersChanged` hint that names `id`.
+async fn hint_naming(rx: &mut tokio::sync::mpsc::UnboundedReceiver<LiveUpdate>, id: &str) {
+    let wait = async {
+        loop {
+            match rx.recv().await.expect("the supervisor stopped") {
+                LiveUpdate::ContainersChanged { ids } if ids.iter().any(|i| i == id) => return,
+                LiveUpdate::Disconnected { error } => panic!("disconnected: {error:?}"),
+                _ => {}
+            }
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(2), wait)
+        .await
+        .expect("no hint naming the test container within 2 s");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires Docker"]
+async fn events_name_the_test_container_when_it_starts_and_stops() {
+    let container = TestContainer::create("events").await;
+    let service = DockerService::new();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let subscription = service.subscribe_live_updates(move |update| tx.send(update).is_ok());
+    assert_eq!(rx.recv().await, Some(LiveUpdate::Connected));
+
+    service.start_container(&container.id).await.unwrap();
+    hint_naming(&mut rx, &container.id).await;
+    service.stop_container(&container.id).await.unwrap();
+    hint_naming(&mut rx, &container.id).await;
+    service.cancel_stream(subscription);
 }
