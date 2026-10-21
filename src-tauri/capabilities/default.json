@@ -6,6 +6,7 @@
   "permissions": [
     "core:default",
     "allow-get-connection-status",
+    "allow-subscribe-live-updates",
     "allow-list-containers",
     "allow-start-container",
     "allow-stop-container",

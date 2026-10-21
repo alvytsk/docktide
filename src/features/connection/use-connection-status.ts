@@ -8,9 +8,8 @@ export function useConnectionStatus() {
   const query = useQuery({
     queryKey: connectionQueryKey,
     queryFn: getConnectionStatus,
-    // The one accepted poll in M0; the events stream replaces it in M1.
-    refetchInterval: 10_000,
-    refetchIntervalInBackground: true,
+    // No poll: live updates refetch on connection changes (spec M1 FR-2), and
+    // focus picks up an endpoint changed while Docktide was in the background.
     refetchOnWindowFocus: true,
     // Failures are part of the status value; retrying would only delay it.
     retry: false,

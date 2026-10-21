@@ -1,5 +1,7 @@
-use docktide_core::{ConnectionStatus, ContainerSummary, DockerService, IpcError};
-use tauri::State;
+use docktide_core::{ConnectionStatus, ContainerSummary, DockerService, IpcError, LiveUpdate};
+use tauri::ipc::Channel;
+use tauri::webview::PageLoadEvent;
+use tauri::{Manager, State, WindowEvent};
 
 /// Failures are part of the status, so this never returns `Err`. Async
 /// commands that borrow state must return a `Result`.
@@ -8,6 +10,16 @@ async fn get_connection_status(
     docker: State<'_, DockerService>,
 ) -> Result<ConnectionStatus, IpcError> {
     Ok(docker.connection_status().await)
+}
+
+/// Replaces any previous subscriber. Streams end when the page reloads (see `run`).
+#[tauri::command]
+async fn subscribe_live_updates(
+    docker: State<'_, DockerService>,
+    on_update: Channel<LiveUpdate>,
+) -> Result<(), IpcError> {
+    docker.subscribe_live_updates(move |update| on_update.send(update).is_ok());
+    Ok(())
 }
 
 #[tauri::command]
@@ -42,8 +54,21 @@ pub fn run() {
     tracing_subscriber::fmt::init();
     tauri::Builder::default()
         .manage(DockerService::new())
+        // A Channel does not tell Rust that its page went away, so streams are
+        // stopped when a page starts loading and when the window closes.
+        .on_page_load(|webview, payload| {
+            if payload.event() == PageLoadEvent::Started {
+                webview.state::<DockerService>().cancel_all_streams();
+            }
+        })
+        .on_window_event(|window, event| {
+            if matches!(event, WindowEvent::Destroyed) {
+                window.state::<DockerService>().cancel_all_streams();
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             get_connection_status,
+            subscribe_live_updates,
             list_containers,
             start_container,
             stop_container,
