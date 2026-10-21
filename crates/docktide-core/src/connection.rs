@@ -4,9 +4,10 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use bollard::errors::Error as BollardError;
 use bollard::{API_DEFAULT_VERSION, ClientVersion, Docker};
+use serde::Serialize;
 
 use crate::endpoint::{self, ResolvedEndpoint};
-use crate::error::DockerError;
+use crate::error::{DockerError, IpcError};
 use crate::system::EngineInfo;
 
 /// Engine 25. Older engines report `apiVersionUnsupported` (ADR 0001 D12).
@@ -18,7 +19,13 @@ pub const MIN_API_VERSION: ClientVersion = ClientVersion {
 /// Bollard's default request timeout, in seconds.
 const REQUEST_TIMEOUT_SECS: u64 = 120;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
+#[serde(
+    tag = "state",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub enum ConnectionStatus {
     Connected {
         endpoint: ResolvedEndpoint,
@@ -26,7 +33,7 @@ pub enum ConnectionStatus {
     },
     Disconnected {
         endpoint: Option<ResolvedEndpoint>,
-        error: DockerError,
+        error: IpcError,
     },
 }
 
@@ -49,7 +56,7 @@ impl DockerService {
             Ok(endpoint) => self.connection_status_for(endpoint).await,
             Err(error) => ConnectionStatus::Disconnected {
                 endpoint: None,
-                error,
+                error: error.into(),
             },
         }
     }
@@ -60,7 +67,7 @@ impl DockerService {
             Ok(engine) => ConnectionStatus::Connected { endpoint, engine },
             Err(error) => ConnectionStatus::Disconnected {
                 endpoint: Some(endpoint),
-                error,
+                error: error.into(),
             },
         }
     }
@@ -149,5 +156,51 @@ mod tests {
         for v in [version(1, 44), version(1, 53), version(2, 0)] {
             assert!(check_api_version(v).is_ok());
         }
+    }
+}
+
+#[cfg(test)]
+mod ipc_tests {
+    use serde_json::json;
+
+    use super::*;
+    use crate::endpoint::EndpointSource;
+
+    #[test]
+    fn disconnected_status_serializes_to_the_ipc_shape() {
+        let status = ConnectionStatus::Disconnected {
+            endpoint: Some(ResolvedEndpoint {
+                uri: "unix:///run/work.sock".into(),
+                source: EndpointSource::DockerContextEnv,
+                context_name: Some("work".into()),
+            }),
+            error: DockerError::Timeout.into(),
+        };
+        assert_eq!(
+            serde_json::to_value(status).unwrap(),
+            json!({
+                "state": "disconnected",
+                "endpoint": {
+                    "uri": "unix:///run/work.sock",
+                    "source": "dockerContextEnv",
+                    "contextName": "work",
+                },
+                "error": { "kind": "timeout", "message": "Docker did not respond in time." },
+            })
+        );
+    }
+
+    #[test]
+    fn disconnected_status_without_endpoint_serializes_null() {
+        let status = ConnectionStatus::Disconnected {
+            endpoint: None,
+            error: DockerError::UnsupportedEndpoint {
+                uri: "tcp://127.0.0.1:2375".into(),
+            }
+            .into(),
+        };
+        let json = serde_json::to_value(status).unwrap();
+        assert_eq!(json["endpoint"], serde_json::Value::Null);
+        assert_eq!(json["error"]["kind"], "unsupportedEndpoint");
     }
 }

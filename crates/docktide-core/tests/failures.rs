@@ -5,7 +5,7 @@ use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 
 use docktide_core::{
-    ConnectionStatus, DockerError, DockerService, EndpointSource, ResolvedEndpoint,
+    ConnectionStatus, DockerService, EndpointSource, ErrorKind, IpcError, ResolvedEndpoint,
 };
 
 /// A scratch directory removed on drop.
@@ -26,7 +26,7 @@ impl Drop for Scratch {
     }
 }
 
-async fn error_for(socket: &Path) -> DockerError {
+async fn error_for(socket: &Path) -> IpcError {
     let endpoint = ResolvedEndpoint {
         uri: format!("unix://{}", socket.display()),
         source: EndpointSource::DockerHostEnv,
@@ -42,10 +42,7 @@ async fn error_for(socket: &Path) -> DockerError {
 async fn missing_socket_is_daemon_unavailable() {
     let scratch = Scratch::new("missing");
     let error = error_for(&scratch.0.join("nonexistent.sock")).await;
-    assert!(
-        matches!(error, DockerError::DaemonUnavailable { .. }),
-        "{error:?}"
-    );
+    assert_eq!(error.kind, ErrorKind::DaemonUnavailable, "{error:?}");
 }
 
 #[tokio::test]
@@ -54,10 +51,7 @@ async fn socket_without_listener_is_daemon_unavailable() {
     let socket = scratch.0.join("docker.sock");
     drop(UnixListener::bind(&socket).unwrap());
     let error = error_for(&socket).await;
-    assert!(
-        matches!(error, DockerError::DaemonUnavailable { .. }),
-        "{error:?}"
-    );
+    assert_eq!(error.kind, ErrorKind::DaemonUnavailable, "{error:?}");
 }
 
 #[tokio::test]
@@ -71,8 +65,5 @@ async fn unreadable_socket_is_permission_denied() {
     let _listener = UnixListener::bind(&socket).unwrap();
     std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o000)).unwrap();
     let error = error_for(&socket).await;
-    assert!(
-        matches!(error, DockerError::PermissionDenied { .. }),
-        "{error:?}"
-    );
+    assert_eq!(error.kind, ErrorKind::PermissionDenied, "{error:?}");
 }

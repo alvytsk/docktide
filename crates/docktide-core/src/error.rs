@@ -5,18 +5,19 @@ use std::io;
 use std::path::PathBuf;
 
 use bollard::errors::Error as BollardError;
+use serde::Serialize;
 
 /// A failure the UI can explain. `Display` is the user-facing message.
 #[derive(Debug, thiserror::Error)]
 pub enum DockerError {
-    #[error("Docker is not running at `{endpoint}`.")]
+    #[error("Docker is not running at {endpoint}.")]
     DaemonUnavailable { endpoint: String },
-    #[error("Permission denied for `{endpoint}`.")]
+    #[error("Permission denied for {endpoint}.")]
     PermissionDenied { endpoint: String },
-    #[error("`{uri}` endpoints are not supported yet.")]
+    #[error("Remote endpoints are not supported yet: {uri}")]
     UnsupportedEndpoint { uri: String },
     #[error("{}", match context {
-        Some(name) => format!("Docker context `{name}` is not configured correctly."),
+        Some(name) => format!("Docker context {name} is not configured correctly."),
         None => "Docker configuration is not valid.".to_owned(),
     })]
     InvalidConfiguration {
@@ -36,26 +37,78 @@ pub enum DockerError {
     Internal { message: String },
 }
 
+/// The stable kinds the frontend switches on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub enum ErrorKind {
+    DaemonUnavailable,
+    PermissionDenied,
+    UnsupportedEndpoint,
+    InvalidConfiguration,
+    ApiVersionUnsupported,
+    NotFound,
+    Conflict,
+    Timeout,
+    Internal,
+}
+
+/// The error shape sent over IPC. `message` is safe to show as is.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct IpcError {
+    pub kind: ErrorKind,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub hint: Option<String>,
+}
+
+impl From<DockerError> for IpcError {
+    fn from(err: DockerError) -> Self {
+        Self {
+            kind: err.kind(),
+            message: err.to_string(),
+            hint: err.hint(),
+        }
+    }
+}
+
 impl DockerError {
+    #[must_use]
+    pub fn kind(&self) -> ErrorKind {
+        match self {
+            Self::DaemonUnavailable { .. } => ErrorKind::DaemonUnavailable,
+            Self::PermissionDenied { .. } => ErrorKind::PermissionDenied,
+            Self::UnsupportedEndpoint { .. } => ErrorKind::UnsupportedEndpoint,
+            Self::InvalidConfiguration { .. } => ErrorKind::InvalidConfiguration,
+            Self::ApiVersionUnsupported { .. } => ErrorKind::ApiVersionUnsupported,
+            Self::NotFound => ErrorKind::NotFound,
+            Self::Conflict { .. } => ErrorKind::Conflict,
+            Self::Timeout => ErrorKind::Timeout,
+            Self::Internal { .. } => ErrorKind::Internal,
+        }
+    }
+
     /// An actionable next step, if there is one.
     #[must_use]
     pub fn hint(&self) -> Option<String> {
         let hint = match self {
             Self::DaemonUnavailable { .. } => {
-                "Start Docker with `systemctl start docker`, or `systemctl --user start docker` \
+                "Start Docker with systemctl start docker, or with systemctl --user start docker \
                  for rootless Docker."
                     .to_owned()
             }
             Self::PermissionDenied { .. } => {
-                "Your user cannot access this socket. Adding yourself to the `docker` group grants \
+                "Your user cannot access this socket. Adding yourself to the docker group grants \
                  access, but that group is root-equivalent. Rootless Docker is the safer option."
                     .to_owned()
             }
             Self::UnsupportedEndpoint { .. } => {
-                "Set `DOCKER_HOST` or the Docker context to a local `unix://` socket.".to_owned()
+                "Set DOCKER_HOST or the Docker context to a local unix:// socket.".to_owned()
             }
             Self::InvalidConfiguration { path, detail, .. } => {
-                format!("Check `{}`: {detail}", path.display())
+                format!("Check {}: {detail}", path.display())
             }
             Self::ApiVersionUnsupported { .. } => "Upgrade Docker Engine.".to_owned(),
             Self::NotFound | Self::Conflict { .. } | Self::Timeout | Self::Internal { .. } => {
@@ -270,7 +323,7 @@ mod tests {
         };
         assert_eq!(
             err.to_string(),
-            "Docker context `work` is not configured correctly."
+            "Docker context work is not configured correctly."
         );
         assert!(err.hint().unwrap().contains("/home/u/.docker/config.json"));
     }
@@ -278,5 +331,32 @@ mod tests {
     #[test]
     fn not_found_has_no_hint() {
         assert_eq!(DockerError::NotFound.hint(), None);
+    }
+}
+
+#[cfg(test)]
+mod ipc_tests {
+    use super::*;
+
+    #[test]
+    fn converts_to_ipc_error_with_kind_message_and_hint() {
+        let ipc = IpcError::from(DockerError::DaemonUnavailable {
+            endpoint: "unix:///var/run/docker.sock".into(),
+        });
+        assert_eq!(ipc.kind, ErrorKind::DaemonUnavailable);
+        assert_eq!(
+            ipc.message,
+            "Docker is not running at unix:///var/run/docker.sock."
+        );
+        assert!(ipc.hint.unwrap().contains("systemctl"));
+    }
+
+    #[test]
+    fn serializes_camel_case_kind_and_omits_missing_hint() {
+        let json = serde_json::to_value(IpcError::from(DockerError::NotFound)).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({ "kind": "notFound", "message": "Container no longer exists." })
+        );
     }
 }

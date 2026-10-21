@@ -1,6 +1,6 @@
 # M0: Project foundation
 
-- Status: **Approved**, S2 in progress
+- Status: **Approved**, S4 in progress
 - Date: 2026-10-20
 - Related: [Architecture overview](../architecture/overview.md), [ADR 0001](../architecture/decisions/0001-initial-architecture.md)
 
@@ -95,17 +95,19 @@ Commands `start_container`, `stop_container`, `restart_container`, each with
 
 ### FR-5 Error model
 
-| Kind                    | Detected from                                                                          | User message (shape)                                           | Hint                                                                                                       |
-| ----------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `daemonUnavailable`     | socket missing (`SocketNotFoundError`, `io::ErrorKind::NotFound`), `ConnectionRefused` | "Docker is not running at `<endpoint>`."                       | `systemctl start docker`, or `systemctl --user start docker` for rootless                                  |
-| `permissionDenied`      | `io::ErrorKind::PermissionDenied` in the source chain                                  | "Permission denied for `<endpoint>`."                          | Explains the `docker` group (root-equivalent) vs rootless Docker. Never suggests running Docktide as root. |
-| `unsupportedEndpoint`   | non-`unix://` scheme                                                                   | "`<uri>` endpoints are not supported yet."                     | Set `DOCKER_HOST` or a context to a local socket                                                           |
-| `invalidConfiguration`  | missing context, malformed config or metadata                                          | "Docker context `<name>` is not configured correctly."         | file path                                                                                                  |
-| `apiVersionUnsupported` | negotiated < minimum                                                                   | "Docker Engine API `<v>` is older than the supported `<min>`." | upgrade Engine                                                                                             |
-| `notFound`              | HTTP 404                                                                               | "Container no longer exists."                                  | none (list refreshes)                                                                                      |
-| `conflict`              | HTTP 409                                                                               | Docker's message                                               | none                                                                                                       |
-| `timeout`               | `RequestTimeoutError`                                                                  | "Docker did not respond in time."                              | none                                                                                                       |
-| `internal`              | anything else                                                                          | Docker or Bollard message                                      | none; full error logged via `tracing`                                                                      |
+| Kind                    | Detected from                                                                          | User message (shape)                                       | Hint                                                                                                       |
+| ----------------------- | -------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `daemonUnavailable`     | socket missing (`SocketNotFoundError`, `io::ErrorKind::NotFound`), `ConnectionRefused` | "Docker is not running at <endpoint>."                     | `systemctl start docker`, or `systemctl --user start docker` for rootless                                  |
+| `permissionDenied`      | `io::ErrorKind::PermissionDenied` in the source chain                                  | "Permission denied for <endpoint>."                        | Explains the `docker` group (root-equivalent) vs rootless Docker. Never suggests running Docktide as root. |
+| `unsupportedEndpoint`   | non-`unix://` scheme                                                                   | "Remote endpoints are not supported yet: <uri>"            | Set `DOCKER_HOST` or a context to a local socket                                                           |
+| `invalidConfiguration`  | missing context, malformed config or metadata                                          | "Docker context <name> is not configured correctly."       | file path                                                                                                  |
+| `apiVersionUnsupported` | negotiated < minimum                                                                   | "Docker Engine API <v> is older than the supported <min>." | upgrade Engine                                                                                             |
+| `notFound`              | HTTP 404                                                                               | "Container no longer exists."                              | none (list refreshes)                                                                                      |
+| `conflict`              | HTTP 409                                                                               | Docker's message                                           | none                                                                                                       |
+| `timeout`               | `RequestTimeoutError`                                                                  | "Docker did not respond in time."                          | none                                                                                                       |
+| `internal`              | anything else                                                                          | Docker or Bollard message                                  | none; full error logged via `tracing`                                                                      |
+
+Messages and hints are plain text (the UI does not render Markdown).
 
 Classification walks `std::error::Error::source()` to find an `io::Error`, because
 Bollard wraps transport errors. This must be confirmed with real failures (see §7)

@@ -4,14 +4,16 @@ use std::fmt::Write as _;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::error::DockerError;
 
 pub const DEFAULT_SOCKET: &str = "unix:///var/run/docker.sock";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub enum EndpointSource {
     DockerHostEnv,
     DockerContextEnv,
@@ -20,7 +22,9 @@ pub enum EndpointSource {
     RootlessFallback,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(test, derive(ts_rs::TS), ts(rename = "EndpointInfo"))]
 pub struct ResolvedEndpoint {
     pub uri: String,
     pub source: EndpointSource,

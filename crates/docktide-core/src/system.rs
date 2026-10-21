@@ -1,15 +1,20 @@
 //! Engine info and version (spec M0 §4 `EngineInfo`).
 
 use bollard::models::{SystemInfo, SystemVersion};
+use serde::Serialize;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub enum ImageStore {
     Containerd,
     Classic,
     Unknown,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct EngineInfo {
     pub server_version: String,
     /// Negotiated with the server.
@@ -175,5 +180,25 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(map(info).image_store, ImageStore::Classic);
+    }
+}
+
+#[cfg(test)]
+mod ipc_tests {
+    use super::*;
+
+    #[test]
+    fn engine_info_serializes_camel_case() {
+        let mut engine = EngineInfo::from_docker(
+            SystemInfo::default(),
+            SystemVersion::default(),
+            "1.53".into(),
+        );
+        engine.image_store = ImageStore::Containerd;
+        let json = serde_json::to_value(engine).unwrap();
+        assert_eq!(json["apiVersion"], "1.53");
+        assert_eq!(json["serverApiVersion"], "");
+        assert_eq!(json["imageStore"], "containerd");
+        assert_eq!(json["containersRunning"], 0);
     }
 }
