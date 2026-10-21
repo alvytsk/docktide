@@ -1,6 +1,6 @@
 # M0: Project foundation
 
-- Status: **Approved**, S4 in progress
+- Status: **Approved**, S5 in progress
 - Date: 2026-10-20
 - Related: [Architecture overview](../architecture/overview.md), [ADR 0001](../architecture/decisions/0001-initial-architecture.md)
 

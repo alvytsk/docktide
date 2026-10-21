@@ -84,7 +84,7 @@ impl DockerService {
     }
 
     /// The cached client for `endpoint`, or a newly connected and negotiated one.
-    async fn client(&self, endpoint: &ResolvedEndpoint) -> Result<Docker, DockerError> {
+    pub(crate) async fn client(&self, endpoint: &ResolvedEndpoint) -> Result<Docker, DockerError> {
         if let Some((cached, docker)) = self.cached().as_ref()
             && cached == endpoint
         {
@@ -96,7 +96,7 @@ impl DockerService {
     }
 
     /// Classifies a failed request and drops the client if the connection is at fault.
-    fn failed(&self, err: &BollardError, endpoint: &ResolvedEndpoint) -> DockerError {
+    pub(crate) fn failed(&self, err: &BollardError, endpoint: &ResolvedEndpoint) -> DockerError {
         let error = DockerError::from_bollard(err, &endpoint.uri);
         if error.is_connection_level() {
             *self.cached() = None;

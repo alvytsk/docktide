@@ -4,11 +4,13 @@
 //! translates between these services and the frontend.
 
 pub mod connection;
+pub mod containers;
 pub mod endpoint;
 pub mod error;
 pub mod system;
 
 pub use connection::{ConnectionStatus, DockerService};
+pub use containers::{ContainerState, ContainerSummary, PortMapping, Protocol};
 pub use endpoint::{EndpointSource, ResolvedEndpoint};
 pub use error::{DockerError, ErrorKind, IpcError};
 pub use system::{EngineInfo, ImageStore};
@@ -44,6 +46,19 @@ mod bindings {
             (ImageStore::ident(&cfg), ImageStore::export_to_string(&cfg)),
             (IpcError::ident(&cfg), IpcError::export_to_string(&cfg)),
             (ErrorKind::ident(&cfg), ErrorKind::export_to_string(&cfg)),
+            (
+                ContainerSummary::ident(&cfg),
+                ContainerSummary::export_to_string(&cfg),
+            ),
+            (
+                ContainerState::ident(&cfg),
+                ContainerState::export_to_string(&cfg),
+            ),
+            (
+                PortMapping::ident(&cfg),
+                PortMapping::export_to_string(&cfg),
+            ),
+            (Protocol::ident(&cfg), Protocol::export_to_string(&cfg)),
         ];
         let mut stale = Vec::new();
         for (name, contents) in generated {
