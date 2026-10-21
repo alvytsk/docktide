@@ -1,6 +1,8 @@
+import { LoaderCircle, Play, RotateCw, Square, type LucideIcon } from "lucide-react";
 import type { ContainerState } from "@/bindings/ContainerState";
 import type { ContainerSummary } from "@/bindings/ContainerSummary";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -11,7 +13,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { formatPort } from "./list";
+import { availableActions, formatPort, type ContainerAction } from "./list";
+import { useContainerAction } from "./use-container-action";
 
 const STATE_DOTS: Record<ContainerState, string> = {
   running: "bg-signal-ok",
@@ -33,6 +36,37 @@ function StateBadge({ state }: { state: ContainerState }) {
   );
 }
 
+const ACTION_BUTTONS: Record<ContainerAction, { label: string; icon: LucideIcon }> = {
+  start: { label: "Start", icon: Play },
+  stop: { label: "Stop", icon: Square },
+  restart: { label: "Restart", icon: RotateCw },
+};
+
+function RowActions({ container }: { container: ContainerSummary }) {
+  const { mutate, isPending, variables } = useContainerAction(container.id);
+  return (
+    <div className="flex justify-end gap-1">
+      {availableActions(container.state).map((action) => {
+        const { label, icon: Icon } = ACTION_BUTTONS[action];
+        const spinning = isPending && variables === action;
+        return (
+          <Button
+            key={action}
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`${label} ${container.name}`}
+            title={label}
+            disabled={isPending}
+            onClick={() => mutate(action)}
+          >
+            {spinning ? <LoaderCircle className="motion-safe:animate-spin" /> : <Icon />}
+          </Button>
+        );
+      })}
+    </div>
+  );
+}
+
 function Columns() {
   return (
     <TableHeader>
@@ -42,6 +76,7 @@ function Columns() {
         <TableHead>State</TableHead>
         <TableHead>Status</TableHead>
         <TableHead>Ports</TableHead>
+        <TableHead className="text-right">Actions</TableHead>
       </TableRow>
     </TableHeader>
   );
@@ -72,11 +107,14 @@ export function ContainerTable({ containers }: { containers?: ContainerSummary[]
                     <div key={formatPort(port)}>{formatPort(port)}</div>
                   ))}
                 </TableCell>
+                <TableCell>
+                  <RowActions container={c} />
+                </TableCell>
               </TableRow>
             ))
           : [0, 1, 2, 3].map((row) => (
               <TableRow key={row}>
-                {[32, 40, 20, 28, 24].map((width) => (
+                {[32, 40, 20, 28, 24, 16].map((width) => (
                   <TableCell key={width}>
                     <Skeleton className="h-4" style={{ width: `${width * 4}px` }} />
                   </TableCell>

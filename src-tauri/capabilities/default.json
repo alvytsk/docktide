@@ -3,5 +3,12 @@
   "identifier": "default",
   "description": "Capability for the main window",
   "windows": ["main"],
-  "permissions": ["core:default", "allow-get-connection-status", "allow-list-containers"]
+  "permissions": [
+    "core:default",
+    "allow-get-connection-status",
+    "allow-list-containers",
+    "allow-start-container",
+    "allow-stop-container",
+    "allow-restart-container"
+  ]
 }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vite-plus/test";
-import { errorKindLabel, toIpcError } from "./errors";
+import { errorKindLabel, isConnectionLevel, toIpcError } from "./errors";
 
 describe("toIpcError", () => {
   test("passes an IpcError through", () => {
@@ -26,5 +26,15 @@ describe("toIpcError", () => {
 describe("errorKindLabel", () => {
   test("names the daemon being down in plain words", () => {
     expect(errorKindLabel("daemonUnavailable")).toBe("Docker not running");
+  });
+});
+
+describe("isConnectionLevel", () => {
+  test("only transport failures are connection-level", () => {
+    expect(isConnectionLevel("daemonUnavailable")).toBe(true);
+    expect(isConnectionLevel("permissionDenied")).toBe(true);
+    expect(isConnectionLevel("timeout")).toBe(true);
+    expect(isConnectionLevel("notFound")).toBe(false);
+    expect(isConnectionLevel("conflict")).toBe(false);
   });
 });

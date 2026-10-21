@@ -8,7 +8,6 @@ use bollard::query_parameters::ListContainersOptions;
 use serde::Serialize;
 
 use crate::connection::DockerService;
-use crate::endpoint;
 use crate::error::DockerError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -64,8 +63,7 @@ pub struct ContainerSummary {
 impl DockerService {
     /// All containers, running first, then by name.
     pub async fn list_containers(&self) -> Result<Vec<ContainerSummary>, DockerError> {
-        let endpoint = endpoint::resolve_from_system()?;
-        let docker = self.client(&endpoint).await?;
+        let (endpoint, docker) = self.docker().await?;
         let options = ListContainersOptions {
             all: true,
             ..Default::default()
@@ -80,6 +78,33 @@ impl DockerService {
                 .map(ContainerSummary::from_docker)
                 .collect(),
         ))
+    }
+
+    /// Docker answers 304 for an already started container, which Bollard treats as success.
+    pub async fn start_container(&self, id: &str) -> Result<(), DockerError> {
+        let (endpoint, docker) = self.docker().await?;
+        docker
+            .start_container(id, None)
+            .await
+            .map_err(|err| self.failed(&err, &endpoint))
+    }
+
+    /// Uses the Engine's default timeout: the container's `StopTimeout`, or 10 s.
+    pub async fn stop_container(&self, id: &str) -> Result<(), DockerError> {
+        let (endpoint, docker) = self.docker().await?;
+        docker
+            .stop_container(id, None)
+            .await
+            .map_err(|err| self.failed(&err, &endpoint))
+    }
+
+    /// Uses the Engine's default timeout, like `stop_container`.
+    pub async fn restart_container(&self, id: &str) -> Result<(), DockerError> {
+        let (endpoint, docker) = self.docker().await?;
+        docker
+            .restart_container(id, None)
+            .await
+            .map_err(|err| self.failed(&err, &endpoint))
     }
 }
 

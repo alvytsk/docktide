@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vite-plus/test";
 import type { ContainerSummary } from "@/bindings/ContainerSummary";
 import type { PortMapping } from "@/bindings/PortMapping";
-import { formatPort, matchesFilter, type ContainerFilter } from "./list";
+import { availableActions, formatPort, matchesFilter, type ContainerFilter } from "./list";
 
 const container = (patch: Partial<ContainerSummary>): ContainerSummary => ({
   id: "4f2a9c01d3e5b7a8",
@@ -75,5 +75,18 @@ describe("formatPort", () => {
 
   test("unpublished", () => {
     expect(formatPort(port({ publicPort: null, protocol: "udp" }))).toBe("80/udp");
+  });
+});
+
+describe("availableActions", () => {
+  test("follows the state table", () => {
+    expect(availableActions("created")).toEqual(["start"]);
+    expect(availableActions("exited")).toEqual(["start"]);
+    expect(availableActions("running")).toEqual(["stop", "restart"]);
+    expect(availableActions("paused")).toEqual(["stop"]);
+    expect(availableActions("restarting")).toEqual(["stop"]);
+    expect(availableActions("removing")).toEqual([]);
+    expect(availableActions("dead")).toEqual([]);
+    expect(availableActions("unknown")).toEqual([]);
   });
 });

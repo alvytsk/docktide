@@ -36,3 +36,8 @@ export function toIpcError(error: unknown): IpcError {
 export function errorKindLabel(kind: ErrorKind): string {
   return KIND_LABELS[kind];
 }
+
+/** Matches `DockerError::is_connection_level`: the connection status may have changed. */
+export function isConnectionLevel(kind: ErrorKind): boolean {
+  return kind === "daemonUnavailable" || kind === "permissionDenied" || kind === "timeout";
+}

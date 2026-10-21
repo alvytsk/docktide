@@ -1,5 +1,6 @@
 import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
+import { Toaster } from "@/components/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 const queryClient = new QueryClient();
@@ -20,7 +21,9 @@ focusManager.setEventListener((setFocused) => {
 export function Providers({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider delay={300}>{children}</TooltipProvider>
+      <TooltipProvider delay={300}>
+        <Toaster>{children}</Toaster>
+      </TooltipProvider>
     </QueryClientProvider>
   );
 }

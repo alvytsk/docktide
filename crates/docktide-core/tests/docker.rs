@@ -8,7 +8,7 @@ use bollard::query_parameters::{
     CreateContainerOptions, CreateImageOptions, RemoveContainerOptions,
 };
 use bollard::{API_DEFAULT_VERSION, Docker};
-use docktide_core::{ConnectionStatus, ContainerState, DockerService, endpoint};
+use docktide_core::{ConnectionStatus, ContainerState, DockerError, DockerService, endpoint};
 use futures_util::TryStreamExt;
 
 const IMAGE: &str = "busybox:latest";
@@ -44,6 +44,8 @@ impl TestContainer {
             image: Some(IMAGE.into()),
             cmd: Some(vec!["sleep".into(), "300".into()]),
             labels: Some(HashMap::from([("io.docktide.test".into(), "true".into())])),
+            // `sleep` as PID 1 ignores SIGTERM; keep the Engine's default stop fast.
+            stop_timeout: Some(1),
             ..Default::default()
         };
         let id = docker
@@ -105,4 +107,54 @@ async fn list_includes_the_test_container() {
     assert_eq!(found.image, IMAGE);
     assert_eq!(found.state, ContainerState::Created);
     assert_eq!(found.ports, Vec::new());
+}
+
+async fn state_of(service: &DockerService, id: &str) -> ContainerState {
+    let list = service.list_containers().await.unwrap();
+    list.iter()
+        .find(|c| c.id == id)
+        .expect("test container listed")
+        .state
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires Docker"]
+async fn start_stop_restart_transitions() {
+    let container = TestContainer::create("lifecycle").await;
+    let service = DockerService::new();
+
+    service.start_container(&container.id).await.unwrap();
+    assert_eq!(
+        state_of(&service, &container.id).await,
+        ContainerState::Running
+    );
+    // Docker answers 304 for an already started container.
+    service.start_container(&container.id).await.unwrap();
+
+    service.stop_container(&container.id).await.unwrap();
+    assert_eq!(
+        state_of(&service, &container.id).await,
+        ContainerState::Exited
+    );
+    service.stop_container(&container.id).await.unwrap();
+
+    service.restart_container(&container.id).await.unwrap();
+    assert_eq!(
+        state_of(&service, &container.id).await,
+        ContainerState::Running
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires Docker"]
+async fn operations_on_a_removed_container_are_not_found() {
+    let id = TestContainer::create("removed").await.id.clone();
+    let service = DockerService::new();
+    for result in [
+        service.start_container(&id).await,
+        service.stop_container(&id).await,
+        service.restart_container(&id).await,
+    ] {
+        assert!(matches!(result, Err(DockerError::NotFound)), "{result:?}");
+    }
 }

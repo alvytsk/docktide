@@ -3,6 +3,7 @@ import { invoke, type InvokeArgs } from "@tauri-apps/api/core";
 import type { ConnectionStatus } from "@/bindings/ConnectionStatus";
 import type { ContainerSummary } from "@/bindings/ContainerSummary";
 import type { IpcError } from "@/bindings/IpcError";
+import type { ContainerAction } from "@/features/containers/list";
 import { toIpcError } from "./errors";
 
 declare module "@tanstack/react-query" {
@@ -21,3 +22,5 @@ async function call<T>(command: string, args?: InvokeArgs): Promise<T> {
 
 export const getConnectionStatus = () => call<ConnectionStatus>("get_connection_status");
 export const listContainers = () => call<ContainerSummary[]>("list_containers");
+export const runContainerAction = (action: ContainerAction, id: string) =>
+  call<null>(`${action}_container`, { id });

@@ -28,3 +28,21 @@ export function formatPort({ privatePort, publicPort, hostIp, protocol }: PortMa
   const host = hostIp.includes(":") ? `[${hostIp}]` : hostIp;
   return `${host}:${publicPort}→${target}`;
 }
+
+export type ContainerAction = "start" | "stop" | "restart";
+
+const ACTIONS: Record<ContainerState, ContainerAction[]> = {
+  created: ["start"],
+  exited: ["start"],
+  running: ["stop", "restart"],
+  paused: ["stop"],
+  restarting: ["stop"],
+  removing: [],
+  dead: [],
+  unknown: [],
+};
+
+/** The lifecycle actions offered for a container in `state` (spec M0 §5.3). */
+export function availableActions(state: ContainerState): ContainerAction[] {
+  return ACTIONS[state];
+}

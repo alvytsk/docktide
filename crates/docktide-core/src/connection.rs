@@ -83,8 +83,15 @@ impl DockerService {
         ))
     }
 
+    /// The current endpoint and its client, for a request whose failure is classified by `failed`.
+    pub(crate) async fn docker(&self) -> Result<(ResolvedEndpoint, Docker), DockerError> {
+        let endpoint = endpoint::resolve_from_system()?;
+        let docker = self.client(&endpoint).await?;
+        Ok((endpoint, docker))
+    }
+
     /// The cached client for `endpoint`, or a newly connected and negotiated one.
-    pub(crate) async fn client(&self, endpoint: &ResolvedEndpoint) -> Result<Docker, DockerError> {
+    async fn client(&self, endpoint: &ResolvedEndpoint) -> Result<Docker, DockerError> {
         if let Some((cached, docker)) = self.cached().as_ref()
             && cached == endpoint
         {

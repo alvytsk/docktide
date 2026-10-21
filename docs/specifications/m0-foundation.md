@@ -1,6 +1,6 @@
 # M0: Project foundation
 
-- Status: **Approved**, S5 in progress
+- Status: **Approved**, S6 in progress
 - Date: 2026-10-20
 - Related: [Architecture overview](../architecture/overview.md), [ADR 0001](../architecture/decisions/0001-initial-architecture.md)
 
@@ -314,6 +314,6 @@ Resolved on 2026-10-20 (recorded in ADR 0001):
 4. Bundle identifier: `io.github.alvytsk.docktide` (D11).
 5. License: `MIT OR Apache-2.0` (D10).
 
-Still open:
+Resolved in S5:
 
-1. Image for integration tests: `busybox` (proposed) or `alpine`. To be decided in S5.
+6. Image for integration tests: `busybox:latest`, pulled if absent.

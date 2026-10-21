@@ -17,6 +17,21 @@ async fn list_containers(
     docker.list_containers().await.map_err(Into::into)
 }
 
+#[tauri::command]
+async fn start_container(docker: State<'_, DockerService>, id: String) -> Result<(), IpcError> {
+    docker.start_container(&id).await.map_err(Into::into)
+}
+
+#[tauri::command]
+async fn stop_container(docker: State<'_, DockerService>, id: String) -> Result<(), IpcError> {
+    docker.stop_container(&id).await.map_err(Into::into)
+}
+
+#[tauri::command]
+async fn restart_container(docker: State<'_, DockerService>, id: String) -> Result<(), IpcError> {
+    docker.restart_container(&id).await.map_err(Into::into)
+}
+
 /// Builds and runs the Docktide desktop application.
 ///
 /// # Panics
@@ -29,7 +44,10 @@ pub fn run() {
         .manage(DockerService::new())
         .invoke_handler(tauri::generate_handler![
             get_connection_status,
-            list_containers
+            list_containers,
+            start_container,
+            stop_container,
+            restart_container,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
