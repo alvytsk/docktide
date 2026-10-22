@@ -352,6 +352,12 @@ The query key is `["container", id]`; live updates keep it fresh (FR-2).
 
 - Opens `open_logs` with `tail: 1000` (§10, D6) when the tab mounts and closes it
   on unmount or when the container id changes.
+- The lines and settings of the most recently viewed container are kept outside
+  React, so they survive the tab unmounting: switching tabs, or the connection
+  panel replacing the page while Docker is unreachable. A remount reopens with
+  `after` = the last shown timestamp instead of fetching the tail again.
+- A restart is detected by a new `startedAt` while running, after `ended`; a
+  stale "running" from before the stop does not reopen.
 - Lines are held in a ring buffer of 10,000 lines in the hook (not in TanStack
   Query or Zustand: stream data, overview §4). When lines fall off the front, a
   notice "Older lines are no longer shown" appears at the top.
@@ -363,7 +369,8 @@ The query key is `["container", id]`; live updates keep it fresh (FR-2).
     shows "N of M lines".
   - Timestamps toggle (local time, `HH:mm:ss.SSS`, full date in a tooltip); off by default.
   - Wrap toggle; on by default.
-  - Clear: empties the view only; new lines keep arriving.
+  - Clear: empties the view only; new lines keep arriving, and a reopen resumes
+    after the last line that was cleared.
   - Copy: copies the lines in view (after filtering) as plain text.
   - Tail selector: 100, 1,000, 10,000, All. Changing it reopens the stream.
 - stderr lines have a red left border and an accessible "stderr" label. Console
@@ -482,6 +489,10 @@ Each slice ends with a working, checked state. Stop for review after S2.
   after 1.53 are missing and key order may differ from `docker inspect`.
 - On log resume, a line with exactly the same timestamp as the last shown line is
   dropped. Docker's nanosecond timestamps make this rare.
+- Docker's log stream is not in strict timestamp order across stdout and stderr:
+  within a burst, one stream's lines can arrive before the other's earlier ones
+  (seen in S4). A resume only happens after the stream ended or failed, so a line
+  can be lost only when the stream breaks in the middle of such a burst.
 - An endpoint change made while the window stays focused is noticed on the next
   focus or when the current stream fails.
 - Colour state does not carry across line breaks, and cursor movement is dropped,

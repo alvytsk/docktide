@@ -35,6 +35,11 @@ describe("routes", () => {
     expect((await landOn("/containers/abc")).path).toBe("/containers/abc/inspect");
   });
 
+  test("the logs tab is remembered too", async () => {
+    await landOn("/containers/abc/logs");
+    expect((await landOn("/containers/def")).path).toBe("/containers/def/logs");
+  });
+
   test("entering a tab remembers it", async () => {
     await landOn("/containers/abc/inspect");
     expect(useDetailsTab.getState().tab).toBe("inspect");

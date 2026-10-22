@@ -5,6 +5,7 @@ import type { ContainerInspect } from "@/bindings/ContainerInspect";
 import type { ContainerSummary } from "@/bindings/ContainerSummary";
 import type { IpcError } from "@/bindings/IpcError";
 import type { LiveUpdate } from "@/bindings/LiveUpdate";
+import type { LogEvent } from "@/bindings/LogEvent";
 import type { ContainerAction } from "@/features/containers/list";
 import { toIpcError } from "./errors";
 
@@ -30,3 +31,15 @@ export const listContainers = () => call<ContainerSummary[]>("list_containers");
 export const getContainer = (id: string) => call<ContainerInspect>("get_container", { id });
 export const runContainerAction = (action: ContainerAction, id: string) =>
   call<null>(`${action}_container`, { id });
+/**
+ * Follows a container's logs. `tail` is a line count or `null` for all; `after`
+ * resumes after the last shown line's timestamp. Resolves to the id for `closeLogs`.
+ */
+export const openLogs = (
+  id: string,
+  tail: number | null,
+  after: string | null,
+  onEvent: (event: LogEvent) => void,
+) => call<number>("open_logs", { id, tail, after, onEvent: new Channel<LogEvent>(onEvent) });
+/** Unknown ids are ignored. */
+export const closeLogs = (subscription: number) => call<null>("close_logs", { subscription });

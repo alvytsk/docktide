@@ -86,6 +86,23 @@
   --sidebar-accent-foreground: #e6edf0;
   --sidebar-border: #24394a;
   --sidebar-ring: #5fb3b9;
+  /* The 16 standard ANSI colours in logs, readable on the light background. */
+  --ansi-0: #24292f;
+  --ansi-1: #c4302b;
+  --ansi-2: #2a7f3f;
+  --ansi-3: #8a6d00;
+  --ansi-4: #2659c7;
+  --ansi-5: #9c3ab0;
+  --ansi-6: #1b7f8c;
+  --ansi-7: #6e7781;
+  --ansi-8: #57606a;
+  --ansi-9: #d9443b;
+  --ansi-10: #3a9a4f;
+  --ansi-11: #a07c00;
+  --ansi-12: #3b73e0;
+  --ansi-13: #b04fc4;
+  --ansi-14: #2596a3;
+  --ansi-15: #8c959f;
 }
 
 .dark {
@@ -120,6 +137,22 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+  --ansi-0: #6e7681;
+  --ansi-1: #ff7b72;
+  --ansi-2: #7ee787;
+  --ansi-3: #e3b341;
+  --ansi-4: #79c0ff;
+  --ansi-5: #d2a8ff;
+  --ansi-6: #76e3ea;
+  --ansi-7: #c9d1d9;
+  --ansi-8: #8b949e;
+  --ansi-9: #ffa198;
+  --ansi-10: #aff5b4;
+  --ansi-11: #f2cc60;
+  --ansi-12: #a5d6ff;
+  --ansi-13: #e2c5ff;
+  --ansi-14: #b3f0ff;
+  --ansi-15: #f0f6fc;
 }
 
 @layer base {
