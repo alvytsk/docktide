@@ -55,7 +55,9 @@ impl TestContainer {
         labels.insert("io.docktide.test".into(), "true".into());
         let body = ContainerCreateBody {
             image: Some(IMAGE.into()),
-            cmd: body.cmd.or_else(|| Some(vec!["sleep".into(), "300".into()])),
+            cmd: body
+                .cmd
+                .or_else(|| Some(vec!["sleep".into(), "300".into()])),
             labels: Some(labels),
             // `sleep` as PID 1 ignores SIGTERM; keep the Engine's default stop fast.
             stop_timeout: body.stop_timeout.or(Some(1)),
@@ -406,6 +408,13 @@ async fn logs_until_end(
         .expect("the log stream did not end")
 }
 
+/// Docker trims trailing zeros from the fraction; pad it so timestamps compare as text.
+fn comparable(timestamp: &str) -> String {
+    let base = timestamp.trim_end_matches('Z');
+    let (seconds, fraction) = base.split_once('.').unwrap_or((base, ""));
+    format!("{seconds}.{fraction:0<9}")
+}
+
 fn texts(lines: &[LogLine], stream: LogStream) -> Vec<&str> {
     lines
         .iter()
@@ -418,7 +427,7 @@ fn texts(lines: &[LogLine], stream: LogStream) -> Vec<&str> {
 #[ignore = "requires Docker"]
 async fn logs_follow_tail_and_resume() {
     let script = "for i in 1 2 3 4 5 6 7 8 9 10; do echo out$i; echo err$i >&2; done; \
-                  sleep 1; echo late; sleep 1";
+                  sleep 1; echo late; sleep 1; echo later; sleep 1";
     let container = TestContainer::create_with(
         "logs",
         ContainerCreateBody {
@@ -436,10 +445,10 @@ async fn logs_follow_tail_and_resume() {
     let outs: Vec<String> = (1..=10).map(|i| format!("out{i}")).collect();
     let errs: Vec<String> = (1..=10).map(|i| format!("err{i}")).collect();
     let mut expected_out: Vec<&str> = outs.iter().map(String::as_str).collect();
-    expected_out.push("late");
+    expected_out.extend(["late", "later"]);
     assert_eq!(texts(&all, LogStream::Stdout), expected_out);
     assert_eq!(texts(&all, LogStream::Stderr), errs);
-    assert_eq!(all.last().unwrap().text, "late");
+    assert_eq!(all.last().unwrap().text, "later");
     assert!(all.iter().all(|line| line.timestamp.ends_with('Z')));
 
     // Tail of a stopped container.
@@ -447,11 +456,20 @@ async fn logs_follow_tail_and_resume() {
     assert_eq!(end, LogEvent::Ended);
     assert_eq!(tail, all[all.len() - 3..]);
 
-    // Resume after the tenth line: nothing duplicated, nothing missing.
-    let after = all[9].timestamp.clone();
+    // Resume after the burst: nothing duplicated, nothing missing. (Within a
+    // burst Docker does not order stdout and stderr by timestamp; spec §9.)
+    let late = all.iter().position(|line| line.text == "late").unwrap();
+    let after = all[..late]
+        .iter()
+        .map(|line| line.timestamp.clone())
+        .max_by_key(|timestamp| comparable(timestamp))
+        .unwrap();
     let (rest, end) = logs_until_end(&service, &container.id, Some(1000), Some(after)).await;
     assert_eq!(end, LogEvent::Ended);
-    assert_eq!(rest, all[10..]);
+    assert_eq!(rest, all[late..]);
+    let after = all[late].timestamp.clone();
+    let (rest, _) = logs_until_end(&service, &container.id, Some(1000), Some(after)).await;
+    assert_eq!(rest, all[late + 1..]);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -483,7 +501,7 @@ async fn tty_logs_arrive_as_console_lines() {
 async fn logs_of_a_removed_container_are_not_found() {
     let id = TestContainer::create("logs-removed").await.id.clone();
     let (lines, end) = logs_until_end(&DockerService::new(), &id, Some(10), None).await;
-    assert!(lines.is_empty());
+    assert_eq!(lines, []);
     let LogEvent::Error { error } = end else {
         panic!("expected an error, got {end:?}");
     };
