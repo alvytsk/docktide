@@ -10,6 +10,8 @@ fn main() {
             "start_container",
             "stop_container",
             "restart_container",
+            "open_logs",
+            "close_logs",
         ]),
     ))
     .expect("failed to run tauri-build");

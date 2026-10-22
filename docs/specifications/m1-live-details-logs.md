@@ -149,15 +149,21 @@ Line assembly in Rust:
   characters except tab are stripped.
 - A partial line longer than 64 KiB is emitted as a line to bound memory.
 - Leftover partial text is emitted when the stream ends.
-- The TTY behaviour with `timestamps=1` must be confirmed against a real TTY
-  container in S4, not only constructed byte sequences.
+- Confirmed in S4 against Engine 29 with the `json-file` driver: a TTY container's
+  lines each carry a timestamp, even when a line was printed in parts, and end in
+  `\r\r\n` (the terminal's `\r\n` plus Docker's `\r`). A non-TTY message over
+  16 KiB arrives as two frames with the same timestamp.
 
 Delivery:
 
-- Lines are batched: a batch is sent every 50 ms or at 500 lines, whichever comes first.
-- Between the Docker reader and the channel sits a bounded queue of 10,000 lines.
-  When it is full, the oldest lines are dropped and a `gap` event with the count
-  precedes the next batch.
+- Lines are batched: a batch leaves 50 ms after its first line, or as soon as it
+  holds 500 lines. Batches hold at most 500 lines and leave at most every 50 ms,
+  which caps delivery at 10,000 lines/s. A `Channel` send never blocks, so this
+  pacing is what protects the webview.
+- Lines waiting for delivery sit in a bounded queue of 10,000 lines. When it is
+  full, the oldest lines are dropped and a `gap` event with the count precedes
+  the next batch.
+- When the stream ends, queued lines are sent at once, before `ended` or `error`.
 - When Docker closes the stream (the container stopped or was removed), Rust
   sends `ended` and releases the subscription.
 - A Docker failure sends `error` with the classified `IpcError` and releases the

@@ -1,5 +1,6 @@
 use docktide_core::{
     ConnectionStatus, ContainerInspect, ContainerSummary, DockerService, IpcError, LiveUpdate,
+    LogEvent, SubscriptionId,
 };
 use tauri::ipc::Channel;
 use tauri::webview::PageLoadEvent;
@@ -54,6 +55,32 @@ async fn restart_container(docker: State<'_, DockerService>, id: String) -> Resu
     docker.restart_container(&id).await.map_err(Into::into)
 }
 
+/// Follows a container's logs; see `DockerService::open_logs`. Returns the id
+/// for `close_logs`. Streams also end when the page reloads (see `run`).
+#[tauri::command]
+async fn open_logs(
+    docker: State<'_, DockerService>,
+    id: String,
+    tail: Option<u32>,
+    after: Option<String>,
+    on_event: Channel<LogEvent>,
+) -> Result<SubscriptionId, IpcError> {
+    docker
+        .open_logs(&id, tail, after, move |event| on_event.send(event).is_ok())
+        .await
+        .map_err(Into::into)
+}
+
+/// Unknown ids are ignored, so closing twice is harmless.
+#[tauri::command]
+async fn close_logs(
+    docker: State<'_, DockerService>,
+    subscription: SubscriptionId,
+) -> Result<(), IpcError> {
+    docker.cancel_stream(subscription);
+    Ok(())
+}
+
 /// Builds and runs the Docktide desktop application.
 ///
 /// # Panics
@@ -84,6 +111,8 @@ pub fn run() {
             start_container,
             stop_container,
             restart_container,
+            open_logs,
+            close_logs,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

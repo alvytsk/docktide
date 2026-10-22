@@ -168,7 +168,7 @@ async fn supervise(service: &DockerService, sink: &(dyn Fn(LiveUpdate) -> bool +
 
 /// A transport error while reading an open stream means the connection is gone,
 /// even when no `io::Error` says so (hyper reports a cut body without one).
-fn stream_failure(
+pub(crate) fn stream_failure(
     service: &DockerService,
     err: &BollardError,
     endpoint: ResolvedEndpoint,

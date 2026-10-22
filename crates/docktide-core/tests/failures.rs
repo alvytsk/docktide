@@ -1,5 +1,6 @@
 //! Error classification against real socket failures (spec M0 §7.3), API
-//! negotiation, and the events supervisor (spec M1 §7.3) against a fake Engine.
+//! negotiation, the events supervisor, and log streams (spec M1 §7.3) against a
+//! fake Engine.
 //! No Docker needed.
 
 use std::io::{BufRead, BufReader, Write};
@@ -7,12 +8,13 @@ use std::net::Shutdown;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use docktide_core::{
-    ConnectionStatus, DockerService, EndpointSource, ErrorKind, IpcError, LiveUpdate,
-    ResolvedEndpoint, SubscriptionId,
+    ConnectionStatus, DockerService, EndpointSource, ErrorKind, IpcError, LiveUpdate, LogEvent,
+    LogStream, ResolvedEndpoint, SubscriptionId,
 };
 use tokio::sync::mpsc;
 
@@ -104,12 +106,21 @@ async fn socket_in_untraversable_directory_is_permission_denied() {
 
 /// A minimal Engine whose maximum API version is `api`. Like the real daemon, it
 /// rejects versioned paths above that with HTTP 400. Records each request path.
-/// `/events` responses stay open until `close_event_streams`.
+/// `/events` responses stay open until `close_event_streams`; log responses
+/// stay open until the client closes them.
 struct FakeEngine {
     _scratch: Option<Scratch>,
     socket: PathBuf,
     requests: Arc<Mutex<Vec<String>>>,
     event_streams: Arc<Mutex<Vec<UnixStream>>>,
+    logs: Arc<LogStreams>,
+}
+
+/// Open log responses, and how many the client has closed.
+#[derive(Default)]
+struct LogStreams {
+    open: Mutex<Vec<UnixStream>>,
+    closed: AtomicUsize,
 }
 
 impl FakeEngine {
@@ -126,11 +137,20 @@ impl FakeEngine {
         let listener = UnixListener::bind(&socket).unwrap();
         let requests = Arc::new(Mutex::new(Vec::new()));
         let event_streams = Arc::new(Mutex::new(Vec::new()));
-        let (log, streams) = (Arc::clone(&requests), Arc::clone(&event_streams));
+        let logs = Arc::new(LogStreams::default());
+        let (log, streams, log_streams) = (
+            Arc::clone(&requests),
+            Arc::clone(&event_streams),
+            Arc::clone(&logs),
+        );
         std::thread::spawn(move || {
             for stream in listener.incoming().flatten() {
-                let (log, streams) = (Arc::clone(&log), Arc::clone(&streams));
-                std::thread::spawn(move || serve(stream, api, &log, &streams));
+                let (log, streams, log_streams) = (
+                    Arc::clone(&log),
+                    Arc::clone(&streams),
+                    Arc::clone(&log_streams),
+                );
+                std::thread::spawn(move || serve(stream, api, &log, &streams, &log_streams));
             }
         });
         Self {
@@ -138,6 +158,7 @@ impl FakeEngine {
             socket,
             requests,
             event_streams,
+            logs,
         }
     }
 
@@ -168,6 +189,41 @@ impl FakeEngine {
         panic!("no events request arrived");
     }
 
+    /// Writes a multiplexed stdout frame to every open log response.
+    fn log_line(&self, text: &str) {
+        let payload = format!("2026-10-22T04:38:47.825201379Z {text}\n");
+        let mut frame = vec![1, 0, 0, 0];
+        frame.extend_from_slice(&u32::try_from(payload.len()).unwrap().to_be_bytes());
+        frame.extend_from_slice(payload.as_bytes());
+        let mut chunk = format!("{:x}\r\n", frame.len()).into_bytes();
+        chunk.extend_from_slice(&frame);
+        chunk.extend_from_slice(b"\r\n");
+        let mut open = self.logs.open.lock().unwrap();
+        open.retain_mut(|stream| stream.write_all(&chunk).is_ok());
+    }
+
+    /// Waits until `count` log responses are open.
+    async fn wait_for_log_streams(&self, count: usize) {
+        for _ in 0..200 {
+            if self.logs.open.lock().unwrap().len() >= count {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("no logs request arrived");
+    }
+
+    /// Waits until the client has closed `count` log connections in total.
+    async fn wait_for_closed_logs(&self, count: usize) {
+        for _ in 0..200 {
+            if self.logs.closed.load(Ordering::SeqCst) >= count {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("the client kept the logs connection open");
+    }
+
     /// Ends every `/events` response, cleanly with a final chunk or abruptly.
     fn close_event_streams(&self, clean: bool) {
         for mut stream in self.event_streams.lock().unwrap().drain(..) {
@@ -184,6 +240,7 @@ fn serve(
     api: &str,
     log: &Mutex<Vec<String>>,
     event_streams: &Mutex<Vec<UnixStream>>,
+    logs: &LogStreams,
 ) {
     let mut writer = stream.try_clone().unwrap();
     let mut reader = BufReader::new(stream);
@@ -226,6 +283,19 @@ fn serve(
                     if writer.write_all(headers.as_bytes()).is_ok() {
                         event_streams.lock().unwrap().push(writer);
                     }
+                    return;
+                }
+                path if path.starts_with("/containers/") && path.ends_with("/logs") => {
+                    let headers = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/vnd.docker.multiplexed-stream\r\nApi-Version: {api}\r\nTransfer-Encoding: chunked\r\n\r\n"
+                    );
+                    if writer.write_all(headers.as_bytes()).is_ok() {
+                        logs.open.lock().unwrap().push(writer);
+                    }
+                    // The client sends nothing more; EOF means it closed the connection.
+                    let mut rest = Vec::new();
+                    let _ = std::io::Read::read_to_end(&mut reader, &mut rest);
+                    logs.closed.fetch_add(1, Ordering::SeqCst);
                     return;
                 }
                 "/version" => (
@@ -438,4 +508,71 @@ async fn a_new_subscriber_replaces_the_previous_one() {
     let mut second = Updates::subscribe(&service);
     assert!(first.closes(SOON).await);
     assert_eq!(second.next(SOON).await, LiveUpdate::Connected);
+}
+
+/// Collects log events from a subscription.
+fn log_events() -> (
+    mpsc::UnboundedSender<LogEvent>,
+    mpsc::UnboundedReceiver<LogEvent>,
+) {
+    mpsc::unbounded_channel()
+}
+
+#[tokio::test]
+async fn closing_logs_closes_the_engine_connection() {
+    let engine = FakeEngine::start("logs-close", "1.53");
+    let service = DockerService::for_endpoint(endpoint(&engine.socket));
+    let (tx, mut rx) = log_events();
+    let id = service
+        .open_logs("abc", Some(1000), None, move |event| tx.send(event).is_ok())
+        .await
+        .unwrap();
+    engine.wait_for_log_streams(1).await;
+    engine.log_line("hello");
+    let event = tokio::time::timeout(SOON, rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    let LogEvent::Lines { lines } = event else {
+        panic!("expected lines, got {event:?}");
+    };
+    assert_eq!(
+        (lines[0].stream, lines[0].text.as_str()),
+        (LogStream::Stdout, "hello")
+    );
+
+    service.cancel_stream(id);
+    engine.wait_for_closed_logs(1).await;
+    assert!(
+        matches!(tokio::time::timeout(SOON, rx.recv()).await, Ok(None)),
+        "cancelling drops the sink without further events"
+    );
+}
+
+#[tokio::test]
+async fn a_closed_sink_closes_the_engine_connection() {
+    let engine = FakeEngine::start("logs-sink", "1.53");
+    let service = DockerService::for_endpoint(endpoint(&engine.socket));
+    service
+        .open_logs("abc", None, None, |_| false)
+        .await
+        .unwrap();
+    engine.wait_for_log_streams(1).await;
+    engine.log_line("nobody is listening");
+    engine.wait_for_closed_logs(1).await;
+}
+
+#[tokio::test]
+async fn cancel_all_closes_every_log_connection() {
+    let engine = FakeEngine::start("logs-all", "1.53");
+    let service = DockerService::for_endpoint(endpoint(&engine.socket));
+    for _ in 0..3 {
+        service
+            .open_logs("abc", Some(10), None, |_| true)
+            .await
+            .unwrap();
+    }
+    engine.wait_for_log_streams(3).await;
+    service.cancel_all_streams();
+    engine.wait_for_closed_logs(3).await;
 }

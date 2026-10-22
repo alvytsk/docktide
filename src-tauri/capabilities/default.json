@@ -11,6 +11,8 @@
     "allow-get-container",
     "allow-start-container",
     "allow-stop-container",
-    "allow-restart-container"
+    "allow-restart-container",
+    "allow-open-logs",
+    "allow-close-logs"
   ]
 }

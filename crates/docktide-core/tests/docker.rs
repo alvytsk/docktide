@@ -12,8 +12,8 @@ use bollard::query_parameters::{
 };
 use bollard::{API_DEFAULT_VERSION, Docker};
 use docktide_core::{
-    ConnectionStatus, ContainerState, DockerError, DockerService, KeyValue, LiveUpdate, MountType,
-    Protocol, endpoint,
+    ConnectionStatus, ContainerState, DockerError, DockerService, KeyValue, LiveUpdate, LogEvent,
+    LogLine, LogStream, MountType, Protocol, endpoint,
 };
 use futures_util::TryStreamExt;
 
@@ -31,7 +31,7 @@ impl TestContainer {
         Self::create_with(test, ContainerCreateBody::default()).await
     }
 
-    /// `body` overrides the defaults; its labels are added to the test label.
+    /// Fields set in `body` replace the defaults; its labels are added to the test label.
     async fn create_with(test: &str, body: ContainerCreateBody) -> Self {
         let endpoint = endpoint::resolve_from_system().unwrap();
         let docker = Docker::connect_with_socket(&endpoint.uri, 120, API_DEFAULT_VERSION).unwrap();
@@ -55,10 +55,10 @@ impl TestContainer {
         labels.insert("io.docktide.test".into(), "true".into());
         let body = ContainerCreateBody {
             image: Some(IMAGE.into()),
-            cmd: Some(vec!["sleep".into(), "300".into()]),
+            cmd: body.cmd.or_else(|| Some(vec!["sleep".into(), "300".into()])),
             labels: Some(labels),
             // `sleep` as PID 1 ignores SIGTERM; keep the Engine's default stop fast.
-            stop_timeout: Some(1),
+            stop_timeout: body.stop_timeout.or(Some(1)),
             ..body
         };
         let id = docker
@@ -373,4 +373,119 @@ async fn inspecting_a_removed_container_is_not_found() {
     let id = TestContainer::create("inspect-removed").await.id.clone();
     let result = DockerService::new().inspect_container(&id).await;
     assert!(matches!(result, Err(DockerError::NotFound)), "{result:?}");
+}
+
+/// Follows logs until Docker ends the stream. Returns the lines and the final event.
+async fn logs_until_end(
+    service: &DockerService,
+    id: &str,
+    tail: Option<u32>,
+    after: Option<String>,
+) -> (Vec<LogLine>, LogEvent) {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    service
+        .open_logs(id, tail, after, move |event| tx.send(event).is_ok())
+        .await
+        .unwrap();
+    let collect = async {
+        let mut lines = Vec::new();
+        loop {
+            match rx
+                .recv()
+                .await
+                .expect("the log stream stopped without an event")
+            {
+                LogEvent::Lines { lines: batch } => lines.extend(batch),
+                LogEvent::Gap { dropped } => panic!("{dropped} lines dropped"),
+                end => return (lines, end),
+            }
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(15), collect)
+        .await
+        .expect("the log stream did not end")
+}
+
+fn texts(lines: &[LogLine], stream: LogStream) -> Vec<&str> {
+    lines
+        .iter()
+        .filter(|line| line.stream == stream)
+        .map(|line| line.text.as_str())
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires Docker"]
+async fn logs_follow_tail_and_resume() {
+    let script = "for i in 1 2 3 4 5 6 7 8 9 10; do echo out$i; echo err$i >&2; done; \
+                  sleep 1; echo late; sleep 1";
+    let container = TestContainer::create_with(
+        "logs",
+        ContainerCreateBody {
+            cmd: Some(vec!["sh".into(), "-c".into(), script.into()]),
+            ..Default::default()
+        },
+    )
+    .await;
+    let service = DockerService::new();
+    service.start_container(&container.id).await.unwrap();
+
+    // Follows while the container runs, then ends when it exits.
+    let (all, end) = logs_until_end(&service, &container.id, Some(1000), None).await;
+    assert_eq!(end, LogEvent::Ended);
+    let outs: Vec<String> = (1..=10).map(|i| format!("out{i}")).collect();
+    let errs: Vec<String> = (1..=10).map(|i| format!("err{i}")).collect();
+    let mut expected_out: Vec<&str> = outs.iter().map(String::as_str).collect();
+    expected_out.push("late");
+    assert_eq!(texts(&all, LogStream::Stdout), expected_out);
+    assert_eq!(texts(&all, LogStream::Stderr), errs);
+    assert_eq!(all.last().unwrap().text, "late");
+    assert!(all.iter().all(|line| line.timestamp.ends_with('Z')));
+
+    // Tail of a stopped container.
+    let (tail, end) = logs_until_end(&service, &container.id, Some(3), None).await;
+    assert_eq!(end, LogEvent::Ended);
+    assert_eq!(tail, all[all.len() - 3..]);
+
+    // Resume after the tenth line: nothing duplicated, nothing missing.
+    let after = all[9].timestamp.clone();
+    let (rest, end) = logs_until_end(&service, &container.id, Some(1000), Some(after)).await;
+    assert_eq!(end, LogEvent::Ended);
+    assert_eq!(rest, all[10..]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires Docker"]
+async fn tty_logs_arrive_as_console_lines() {
+    let script = r"echo tty-line; printf '\033[32mgreen\033[0m\n'; printf '10%%\r100%%\n'";
+    let container = TestContainer::create_with(
+        "logs-tty",
+        ContainerCreateBody {
+            cmd: Some(vec!["sh".into(), "-c".into(), script.into()]),
+            tty: Some(true),
+            ..Default::default()
+        },
+    )
+    .await;
+    let service = DockerService::new();
+    service.start_container(&container.id).await.unwrap();
+    let (lines, end) = logs_until_end(&service, &container.id, None, None).await;
+    assert_eq!(end, LogEvent::Ended);
+    assert_eq!(
+        texts(&lines, LogStream::Console),
+        ["tty-line", "\x1b[32mgreen\x1b[0m", "100%"]
+    );
+    assert_eq!(lines.len(), 3, "{lines:?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires Docker"]
+async fn logs_of_a_removed_container_are_not_found() {
+    let id = TestContainer::create("logs-removed").await.id.clone();
+    let (lines, end) = logs_until_end(&DockerService::new(), &id, Some(10), None).await;
+    assert!(lines.is_empty());
+    let LogEvent::Error { error } = end else {
+        panic!("expected an error, got {end:?}");
+    };
+    assert_eq!(error.kind, docktide_core::ErrorKind::NotFound, "{error:?}");
 }

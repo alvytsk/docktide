@@ -9,6 +9,7 @@ pub mod endpoint;
 pub mod error;
 pub mod events;
 pub mod inspect;
+pub mod logs;
 pub mod streams;
 pub mod system;
 
@@ -21,6 +22,7 @@ pub use inspect::{
     ContainerDetails, ContainerHealth, ContainerInspect, HealthStatus, KeyValue, MountInfo,
     MountType, NetworkAttachment,
 };
+pub use logs::{LogEvent, LogLine, LogStream};
 pub use streams::SubscriptionId;
 pub use system::{EngineInfo, ImageStore};
 
@@ -92,6 +94,9 @@ mod bindings {
                 NetworkAttachment::export_to_string(&cfg),
             ),
             (KeyValue::ident(&cfg), KeyValue::export_to_string(&cfg)),
+            (LogEvent::ident(&cfg), LogEvent::export_to_string(&cfg)),
+            (LogLine::ident(&cfg), LogLine::export_to_string(&cfg)),
+            (LogStream::ident(&cfg), LogStream::export_to_string(&cfg)),
         ];
         let mut stale = Vec::new();
         for (name, contents) in generated {
