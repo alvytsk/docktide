@@ -142,9 +142,9 @@ export function useLogStream(id: string, startedAt: string | null, running: bool
   const { status } = session;
   const run = status.kind === "ended" && running ? startedAt : (session.openedFor ?? startedAt);
 
-  // oxlint-disable-next-line react/exhaustive-effect-dependencies -- `generation` and `run` are reopen triggers
   useEffect(
     () => session.open(currentStart(), render, connectionLost),
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- `generation` and `run` are reopen triggers
     [session, generation, run, render],
   );
 
