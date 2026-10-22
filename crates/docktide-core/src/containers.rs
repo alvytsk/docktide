@@ -142,24 +142,33 @@ impl ContainerSummary {
     }
 }
 
+fn ports(ports: Vec<PortSummary>) -> Vec<PortMapping> {
+    normalized(
+        ports
+            .into_iter()
+            .map(|port| PortMapping {
+                private_port: port.private_port,
+                public_port: port.public_port,
+                host_ip: port.ip,
+                protocol: match port.typ {
+                    Some(PortSummaryTypeEnum::UDP) => Protocol::Udp,
+                    Some(PortSummaryTypeEnum::SCTP) => Protocol::Sctp,
+                    _ => Protocol::Tcp,
+                },
+            })
+            .collect(),
+    )
+}
+
 /// Docker reports each published port once per IP family, so wildcard IPs are
 /// normalized to `None` and the duplicates dropped.
-fn ports(ports: Vec<PortSummary>) -> Vec<PortMapping> {
-    let mut ports: Vec<PortMapping> = ports
-        .into_iter()
-        .map(|port| PortMapping {
-            private_port: port.private_port,
-            public_port: port.public_port,
-            host_ip: port
-                .ip
-                .filter(|ip| !matches!(ip.as_str(), "" | "0.0.0.0" | "::")),
-            protocol: match port.typ {
-                Some(PortSummaryTypeEnum::UDP) => Protocol::Udp,
-                Some(PortSummaryTypeEnum::SCTP) => Protocol::Sctp,
-                _ => Protocol::Tcp,
-            },
-        })
-        .collect();
+pub(crate) fn normalized(mut ports: Vec<PortMapping>) -> Vec<PortMapping> {
+    for port in &mut ports {
+        port.host_ip = port
+            .host_ip
+            .take()
+            .filter(|ip| !matches!(ip.as_str(), "" | "0.0.0.0" | "::"));
+    }
     ports.sort_by(|a, b| {
         (a.private_port, a.protocol, a.public_port, &a.host_ip).cmp(&(
             b.private_port,

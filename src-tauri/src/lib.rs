@@ -1,4 +1,6 @@
-use docktide_core::{ConnectionStatus, ContainerSummary, DockerService, IpcError, LiveUpdate};
+use docktide_core::{
+    ConnectionStatus, ContainerInspect, ContainerSummary, DockerService, IpcError, LiveUpdate,
+};
 use tauri::ipc::Channel;
 use tauri::webview::PageLoadEvent;
 use tauri::{Manager, State, WindowEvent};
@@ -27,6 +29,14 @@ async fn list_containers(
     docker: State<'_, DockerService>,
 ) -> Result<Vec<ContainerSummary>, IpcError> {
     docker.list_containers().await.map_err(Into::into)
+}
+
+#[tauri::command]
+async fn get_container(
+    docker: State<'_, DockerService>,
+    id: String,
+) -> Result<ContainerInspect, IpcError> {
+    docker.inspect_container(&id).await.map_err(Into::into)
 }
 
 #[tauri::command]
@@ -70,6 +80,7 @@ pub fn run() {
             get_connection_status,
             subscribe_live_updates,
             list_containers,
+            get_container,
             start_container,
             stop_container,
             restart_container,

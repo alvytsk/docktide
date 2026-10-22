@@ -6,6 +6,7 @@ fn main() {
             "get_connection_status",
             "subscribe_live_updates",
             "list_containers",
+            "get_container",
             "start_container",
             "stop_container",
             "restart_container",

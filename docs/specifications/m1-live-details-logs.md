@@ -249,7 +249,7 @@ type ContainerDetails = {
   logDriver: string;
 };
 
-type ContainerInspect = { details: ContainerDetails; raw: JsonValue };
+type ContainerInspect = { details: ContainerDetails; raw: unknown }; // Docker's JSON, only displayed
 
 type LogStream = "stdout" | "stderr" | "console";
 
@@ -292,7 +292,8 @@ granted in `capabilities/default.json`.
   typed `Link`; the router type is registered for type-checked paths and params.
 - Data loading stays in TanStack Query inside components; route loaders are not
   used, so the connection gating of M0 keeps working unchanged.
-- Back and forward (Alt+←/→, mouse back button) work through the webview history.
+- Back and forward (Alt+←/→, mouse back and forward buttons) work through the webview
+  history. WebKitGTK leaves these to browser chrome, so the shell handles them.
 - In the list, the container name is a link to its overview. Action buttons do
   not navigate.
 - The Containers sidebar entry is active (`aria-current="page"`) on every
@@ -313,17 +314,17 @@ Zustand for the session and used when another container is opened from the list.
 
 Overview, in sections:
 
-| Section     | Content                                                                                                                                |
-| ----------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| Status      | State, started or finished (relative, absolute in a tooltip), exit code, OOM, error, health with last output, restart policy and count |
-| Image       | Image reference and image id (short, full in a tooltip)                                                                                |
-| Process     | Entrypoint and command (shell-quoted for display), working dir, user, TTY                                                              |
-| Ports       | M0 port format                                                                                                                         |
-| Mounts      | Type, source (or volume name), destination, read-only                                                                                  |
-| Networks    | Name, IPv4, IPv6, gateway, MAC, aliases                                                                                                |
-| Environment | Names with values hidden until "Show values" is pressed (§10, D4); not remembered                                                      |
-| Labels      | Key and value; long values truncated with the full value in a tooltip                                                                  |
-| Resources   | Memory and CPU limits, or "Unlimited"; log driver                                                                                      |
+| Section     | Content                                                                                                                                                  |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Status      | Created; started or finished (relative, absolute in a tooltip), exit code, OOM, error, health with last output (while running), restart policy and count |
+| Image       | Image reference and image id (short, full in a tooltip)                                                                                                  |
+| Process     | Entrypoint and command (shell-quoted for display), working dir, user, TTY                                                                                |
+| Ports       | M0 port format                                                                                                                                           |
+| Mounts      | Type, source (or volume name), destination, read-only                                                                                                    |
+| Networks    | Name, IPv4, IPv6, gateway, MAC, aliases                                                                                                                  |
+| Environment | Names with values hidden until "Show values" is pressed (§10, D4); not remembered                                                                        |
+| Labels      | Key and value; long values truncated with the full value in a tooltip                                                                                    |
+| Resources   | Memory and CPU limits, or "Unlimited"; log driver                                                                                                        |
 
 Empty sections show "None" rather than disappearing.
 
@@ -481,6 +482,10 @@ Each slice ends with a working, checked state. Stop for review after S2.
   so full-screen TTY programs (progress bars redrawn in place) render imperfectly.
 - The log view holds 10,000 lines; older output needs a larger tail or the CLI.
 - Docker's `stopping` state is still shown as `unknown` (M0 §9).
+- Ports come from `NetworkSettings.Ports`, so a stopped container shows none, as
+  in `docker ps`; the configured bindings are in Inspect (`HostConfig.PortBindings`).
+- Docker's relative status text ("Up 3 minutes") is refreshed only by a refetch;
+  it goes stale while nothing changes (already true in M0).
 
 ## 10. Decisions
 
@@ -505,3 +510,6 @@ Implementation calls (not separately approved):
 - Overview is the default tab for the first container opened in a session.
 - One events stream per app, with the relevance allowlist in FR-1.
 - Log resume uses timestamps rather than Docker's `since` alone.
+- Health is hidden on Overview once the container stops: Docker keeps the last
+  result, and the CLI hides it too.
+- The header's status text comes from the list query (inspect has no equivalent).

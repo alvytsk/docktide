@@ -8,6 +8,7 @@
     "allow-get-connection-status",
     "allow-subscribe-live-updates",
     "allow-list-containers",
+    "allow-get-container",
     "allow-start-container",
     "allow-stop-container",
     "allow-restart-container"

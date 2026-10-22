@@ -1,6 +1,7 @@
 // The only module that calls invoke(). Rejections are normalized to IpcError.
 import { Channel, invoke, type InvokeArgs } from "@tauri-apps/api/core";
 import type { ConnectionStatus } from "@/bindings/ConnectionStatus";
+import type { ContainerInspect } from "@/bindings/ContainerInspect";
 import type { ContainerSummary } from "@/bindings/ContainerSummary";
 import type { IpcError } from "@/bindings/IpcError";
 import type { LiveUpdate } from "@/bindings/LiveUpdate";
@@ -26,5 +27,6 @@ export const getConnectionStatus = () => call<ConnectionStatus>("get_connection_
 export const subscribeLiveUpdates = (onUpdate: (update: LiveUpdate) => void) =>
   call<null>("subscribe_live_updates", { onUpdate: new Channel<LiveUpdate>(onUpdate) });
 export const listContainers = () => call<ContainerSummary[]>("list_containers");
+export const getContainer = (id: string) => call<ContainerInspect>("get_container", { id });
 export const runContainerAction = (action: ContainerAction, id: string) =>
   call<null>(`${action}_container`, { id });
