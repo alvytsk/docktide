@@ -2,7 +2,8 @@
 
 A modern, lightweight, Linux-first Docker manager with integrated real-time monitoring.
 
-> **Status: pre-alpha.** Milestone M0 (foundation) is complete. Expect rough edges.
+> **Status: pre-alpha.** Milestones M0 (foundation) and M1 (live updates, details,
+> logs) are complete. Expect rough edges.
 
 ## Features
 
@@ -10,11 +11,22 @@ A modern, lightweight, Linux-first Docker manager with integrated real-time moni
   and a plain explanation when Docker is unreachable or the socket is not accessible.
 - Container list (running and stopped) with name, image, state, status, and ports,
   filterable by text and state.
-- Start, stop, and restart.
+- Start, stop, and restart, from the list or a container's page.
+- Live updates: containers started, stopped, created, or removed with the `docker`
+  CLI or anything else appear within about a second. Docktide notices when Docker
+  goes away and reconnects on its own. It makes no requests while idle.
+- Container details: status and health, image, process, ports, mounts, networks,
+  environment (values hidden until you ask), labels, and limits, plus the raw
+  `inspect` JSON with a Copy button.
+- Logs: the last 1,000 lines (or 100, 10,000, all), then new output as it arrives.
+  Colours are shown, stderr is marked, and TTY containers are readable. Filter,
+  timestamps, wrap, clear, and copy. Logs resume without duplicates after a restart
+  or reconnect. The view keeps the latest 10,000 lines.
+- Back and forward with Alt+←/→ or the mouse side buttons.
 
-Changes made outside Docktide appear on refresh or when the window regains focus;
-live updates come in M1. See the [M0 specification](docs/specifications/m0-foundation.md)
-and the [roadmap](docs/architecture/overview.md#10-roadmap-tentative).
+See the [M1 specification](docs/specifications/m1-live-details-logs.md), the
+[M0 specification](docs/specifications/m0-foundation.md), and the
+[roadmap](docs/architecture/overview.md#10-roadmap-tentative).
 
 ## Requirements
 
@@ -80,8 +92,12 @@ Tests that need a running Docker Engine are marked `#[ignore]`:
 cargo test --workspace -- --ignored
 ```
 
-They only touch containers they create themselves (label `io.docktide.test=true`)
-and remove them afterwards. They pull `busybox:latest` if it is not present.
+They only touch containers and volumes they create themselves (label
+`io.docktide.test=true`) and remove them afterwards. They pull `busybox:latest` if
+it is not present.
+
+Tests against a fake Engine (`crates/docktide-core/tests/failures.rs`) cover
+connection failures, the events supervisor, and log stream cleanup without Docker.
 
 The TypeScript types in `src/bindings/` are generated from the Rust types. A test
 fails when they are stale; regenerate them with:

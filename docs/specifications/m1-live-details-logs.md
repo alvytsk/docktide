@@ -1,6 +1,8 @@
 # M1: Live updates, container details, and logs
 
-- Status: **Approved** 2026-10-21. Decisions in §10.
+- Status: **Approved** 2026-10-21, implemented 2026-10-22. Decisions in §10 and
+  [ADR 0002](../architecture/decisions/0002-m1-navigation-logs-and-live-updates.md);
+  verification results in §11.
 - Date: 2026-10-21
 - Related: [Architecture overview](../architecture/overview.md), [ADR 0001](../architecture/decisions/0001-initial-architecture.md), [M0 spec](m0-foundation.md)
 
@@ -506,7 +508,7 @@ Each slice ends with a working, checked state. Stop for review after S2.
 
 ## 10. Decisions
 
-Resolved on 2026-10-21 (to be recorded in ADR 0002 in S6):
+Resolved on 2026-10-21 and recorded in [ADR 0002](../architecture/decisions/0002-m1-navigation-logs-and-live-updates.md):
 
 1. **D1 Navigation:** TanStack Router with code-based routes and hash history.
    Chosen over an in-app hash router for type-checked routes and params, which
@@ -530,3 +532,55 @@ Implementation calls (not separately approved):
 - Health is hidden on Overview once the container stops: Docker keeps the last
   result, and the CLI hides it too.
 - The header's status text comes from the list query (inspect has no equivalent).
+
+## 11. Verification
+
+Run on 2026-10-21 (S1, S2) and 2026-10-22 (S3 to S6) on the dev host: Ubuntu
+26.04.1, kernel 7.0, niri (Wayland), Docker Engine 29.9.2 (rootful, default
+socket, `json-file` logs), Rust 1.99.1, Node 24.19, pnpm 11.28. Screens were
+checked from window captures under XWayland, driven by keyboard input through
+XTest. Only containers and volumes labelled `io.docktide.test=true` were created,
+changed, or removed; none were left behind. The real daemon was never stopped.
+
+| ID    | Result                   | Evidence                                                                                                                                                                                                                                                                                                                                                     |
+| ----- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| AC-1  | Verified                 | Through a socket proxy: containers created, started, and removed with the CLI appeared or disappeared in the list within 1 s. A CLI stop showed on an open details page within 1.5 s. `events_name_the_test_container_when_it_starts_and_stops` passes.                                                                                                      |
+| AC-2  | Verified                 | A container with a 1 s healthcheck produced 23 events in 8 s and 2 list refetches; the row showed "(healthy)". Relevance unit tests cover `exec_*` and `health_status*`.                                                                                                                                                                                     |
+| AC-3  | Verified by simulation   | Killing the proxy showed "Disconnected" with the hint within 2 s; restoring it showed "Connected" and a fresh list 3 s later, as the backoff predicts. Fake Engine tests cover clean and cut streams, a late Engine, and early retry. The real daemon was not stopped.                                                                                       |
+| AC-4  | Verified                 | The proxy's request log showed no Docker requests in 60 s while idle and connected.                                                                                                                                                                                                                                                                          |
+| AC-5  | Verified                 | A test container with a published port, a named volume, a read-only bind mount, env, labels, limits, a restart policy, and a healthcheck: Overview matched `docker inspect` (image id, `on-failure:3`, IPv4, MAC, mounts, limits). `inspect_maps_a_configured_container` passes.                                                                             |
+| AC-6  | Verified                 | Copy put the full JSON (9,409 bytes) on the clipboard; it parsed, and `Name` and `Config.Env` matched, unmasked.                                                                                                                                                                                                                                             |
+| AC-7  | Verified                 | `docker rm -f` on the open container showed "This container no longer exists." with a link back, and no toast.                                                                                                                                                                                                                                               |
+| AC-8  | Verified                 | Logs opened with the 1,000-line tail and followed new output ("Live"). The stderr line has the red edge; standard, 256-colour, and 24-bit colours render, also in a release build under the production CSP. A TTY container's output is readable. `logs_follow_tail_and_resume` and `tty_logs_arrive_as_console_lines` pass.                                 |
+| AC-9  | Verified                 | `docker restart` with the tab open: the copied view held run 1 (ticks 0 to 131, the last one Docker logged before the restart) and then run 2 from its first line, each contiguous, with nothing duplicated. The resume integration test passes.                                                                                                             |
+| AC-10 | Partly verified          | 5,000 lines/s for 30 s: the view stayed at 10,000 lines with "Older lines are no longer shown"; typing a filter mid-flood applied within 0.5 s while following continued; CPU was about 20 % (WebKit) and 17 % (Rust). No gap marker, since the rate is below the 10,000 lines/s cap. Scrolling and running actions during the flood were **not exercised**. |
+| AC-11 | Verified                 | Docker socket connections owned by the app: opening Logs 1 → 2, leaving the tab 2 → 1, the stream ending 2 → 1. A full page reload closed both the events and the log connection within 0.4 s; closing the window (`WM_DELETE_WINDOW`) ended the process. Fake Engine tests cover `close_logs`, a closed sink, and `cancel_all_streams`.                     |
+| AC-12 | Verified                 | Release build: a missing socket shows "Docker is not running at …" with the hint (M0 AC-6); `tcp://` shows "Remote endpoints are not supported yet" (M0 AC-13). List, filter, and actions are covered by the M0 integration tests, which still pass. M0 AC-7 is covered by the fake socket tests.                                                            |
+| AC-13 | Verified                 | `cargo fmt --check` and clippy are clean. `cargo test --workspace`: 120 passed, 10 ignored; with `--ignored`: 10 passed. `vp check` is clean, `vp test run` passes 67 tests, `pnpm typecheck` passes.                                                                                                                                                        |
+| AC-14 | Verified, pending review | README and overview §2 to §7 and §10 describe live updates, details, logs, and the stream design as built; ADR 0002 records the decisions.                                                                                                                                                                                                                   |
+
+Deviations from the plan made during implementation:
+
+- `ContainerInspect.raw` is typed `unknown` in TypeScript instead of a
+  `JsonValue` type; the frontend only pretty-prints it.
+- Log delivery is paced (FR-4): batches of at most 500 lines leave at most every
+  50 ms, because a `Channel` send never blocks and the queue would otherwise never
+  fill.
+- The logs session lives outside React (§5.4), because the connection panel
+  replaces the page while Docker is unreachable and would discard the lines.
+- The shell handles Alt+←/→ and the mouse side buttons; WebKitGTK has no
+  built-in Back/Forward shortcuts.
+- Health is hidden once a container stops, and the header's status text comes
+  from the list query (§10).
+- Docker does not order stdout and stderr by timestamp within a burst (§9); the
+  resume integration test resumes between bursts.
+
+Observations, not fixed in M1:
+
+- The Actions column of the list is clipped below about 1,270 px of window width
+  (M0 layout).
+- Docker's relative status text ("Up 3 minutes") goes stale until something
+  causes a refetch (§9).
+- In `pnpm tauri dev`, a hot update of `App.tsx` or `router.tsx` recreates the
+  router and leaves a blank page until a full reload. Release builds are not
+  affected.
