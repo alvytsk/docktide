@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { listContainers } from "@/lib/ipc";
 
 export const containersQueryKey = ["containers"] as const;
+export const containerQueryKey = (id: string) => ["container", id] as const;
 
 /** Disabled while disconnected; the connection panel explains why. */
 export function useContainers(enabled: boolean) {

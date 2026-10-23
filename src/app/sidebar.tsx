@@ -7,6 +7,7 @@ import {
   SquareStack,
   type LucideIcon,
 } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ConnectionIndicator } from "@/features/connection/connection-indicator";
 
@@ -25,14 +26,17 @@ export function Sidebar() {
     <aside className="flex w-56 shrink-0 flex-col bg-sidebar text-sidebar-foreground">
       <div className="px-6 pt-6 pb-5 text-[1.05rem] font-semibold tracking-tight">Docktide</div>
       <nav aria-label="Main" className="flex flex-1 flex-col gap-0.5 px-3">
-        <a
-          href="#containers"
-          aria-current="page"
-          className={`${itemClass} bg-sidebar-primary font-medium text-sidebar-primary-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring`}
+        {/* Active, with aria-current="page", on every /containers route. */}
+        <Link
+          to="/containers"
+          className={`${itemClass} focus-visible:ring-2 focus-visible:ring-sidebar-ring`}
+          activeProps={{
+            className: "bg-sidebar-primary font-medium text-sidebar-primary-foreground",
+          }}
         >
           <Box className="size-4" aria-hidden />
           Containers
-        </a>
+        </Link>
         {UPCOMING.map(([label, Icon]) => (
           <Tooltip key={label}>
             <TooltipTrigger

@@ -7,12 +7,23 @@ pub mod connection;
 pub mod containers;
 pub mod endpoint;
 pub mod error;
+pub mod events;
+pub mod inspect;
+pub mod logs;
+pub mod streams;
 pub mod system;
 
 pub use connection::{ConnectionStatus, DockerService};
 pub use containers::{ContainerState, ContainerSummary, PortMapping, Protocol};
 pub use endpoint::{EndpointSource, ResolvedEndpoint};
 pub use error::{DockerError, ErrorKind, IpcError};
+pub use events::LiveUpdate;
+pub use inspect::{
+    ContainerDetails, ContainerHealth, ContainerInspect, HealthStatus, KeyValue, MountInfo,
+    MountType, NetworkAttachment,
+};
+pub use logs::{LogEvent, LogLine, LogStream};
+pub use streams::SubscriptionId;
 pub use system::{EngineInfo, ImageStore};
 
 #[cfg(test)]
@@ -59,6 +70,33 @@ mod bindings {
                 PortMapping::export_to_string(&cfg),
             ),
             (Protocol::ident(&cfg), Protocol::export_to_string(&cfg)),
+            (LiveUpdate::ident(&cfg), LiveUpdate::export_to_string(&cfg)),
+            (
+                ContainerInspect::ident(&cfg),
+                ContainerInspect::export_to_string(&cfg),
+            ),
+            (
+                ContainerDetails::ident(&cfg),
+                ContainerDetails::export_to_string(&cfg),
+            ),
+            (
+                ContainerHealth::ident(&cfg),
+                ContainerHealth::export_to_string(&cfg),
+            ),
+            (
+                HealthStatus::ident(&cfg),
+                HealthStatus::export_to_string(&cfg),
+            ),
+            (MountInfo::ident(&cfg), MountInfo::export_to_string(&cfg)),
+            (MountType::ident(&cfg), MountType::export_to_string(&cfg)),
+            (
+                NetworkAttachment::ident(&cfg),
+                NetworkAttachment::export_to_string(&cfg),
+            ),
+            (KeyValue::ident(&cfg), KeyValue::export_to_string(&cfg)),
+            (LogEvent::ident(&cfg), LogEvent::export_to_string(&cfg)),
+            (LogLine::ident(&cfg), LogLine::export_to_string(&cfg)),
+            (LogStream::ident(&cfg), LogStream::export_to_string(&cfg)),
         ];
         let mut stale = Vec::new();
         for (name, contents) in generated {

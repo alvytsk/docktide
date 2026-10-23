@@ -10,17 +10,19 @@ authors.workspace = true
 
 [dependencies]
 bollard = { version = "0.21.1", default-features = false, features = ["pipe"] }
+futures-util = "0.3.34"
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 sha2 = "0.11.1"
 thiserror = "2.0.21"
-tokio = { version = "1.54.0", features = ["macros"] }
+tokio = { version = "1.54.0", features = ["macros", "rt", "sync", "time"] }
+tokio-util = "0.7.20"
 tracing = "0.1.44"
 
 [lints]
 workspace = true
 
 [dev-dependencies]
-futures-util = "0.3.34"
-tokio = { version = "1.54.0", features = ["macros", "rt-multi-thread"] }
+bytes = "1.11.1"
+tokio = { version = "1.54.0", features = ["macros", "rt-multi-thread", "test-util"] }
 ts-rs = "12.0.1"

@@ -10,6 +10,7 @@ import type { IpcError } from "@/bindings/IpcError";
 import { Toaster } from "@/components/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { connectionQueryKey } from "@/features/connection/use-connection-status";
+import { useLiveUpdates } from "@/features/live-updates/use-live-updates";
 import { isConnectionLevel } from "@/lib/errors";
 
 // Any request that finds Docker unreachable refreshes the connection status at once,
@@ -42,9 +43,15 @@ focusManager.setEventListener((setFocused) => {
   };
 });
 
+function LiveUpdates() {
+  useLiveUpdates();
+  return null;
+}
+
 export function Providers({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
+      <LiveUpdates />
       <TooltipProvider delay={300}>
         <Toaster>{children}</Toaster>
       </TooltipProvider>

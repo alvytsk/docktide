@@ -1,13 +1,16 @@
 //! Client lifecycle and connection status (spec M0 FR-2).
 
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::fmt;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use bollard::errors::Error as BollardError;
 use bollard::{API_DEFAULT_VERSION, ClientVersion, Docker};
 use serde::Serialize;
+use tokio::sync::watch;
 
 use crate::endpoint::{self, ResolvedEndpoint};
 use crate::error::{DockerError, IpcError};
+use crate::streams::StreamRegistry;
 use crate::system::EngineInfo;
 
 /// Engine 25. Older engines report `apiVersionUnsupported` (ADR 0001 D12).
@@ -45,22 +48,78 @@ pub enum ConnectionStatus {
 /// The endpoint, its client, and the engine info fetched once per connection.
 type Cached = (ResolvedEndpoint, Docker, Option<EngineInfo>);
 
+type Resolver = dyn Fn() -> Result<ResolvedEndpoint, DockerError> + Send + Sync;
+
 /// Owns the Bollard client. It connects lazily and drops the client after a
-/// connection-level failure, so the next request reconnects.
-#[derive(Debug, Default)]
+/// connection-level failure, so the next request reconnects. Clones share the
+/// client and the stream registry, so background tasks can hold one.
+#[derive(Clone)]
 pub struct DockerService {
+    shared: Arc<Shared>,
+}
+
+struct Shared {
+    resolve: Arc<Resolver>,
+    request_timeout: u64,
     client: Mutex<Option<Cached>>,
+    /// Bumped whenever the cached client is replaced or dropped.
+    generation: watch::Sender<u64>,
+    streams: StreamRegistry,
+}
+
+impl fmt::Debug for DockerService {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DockerService")
+            .field("client", &self.shared.client)
+            .field("streams", &self.shared.streams)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Default for DockerService {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DockerService {
+    /// Resolves the endpoint like the Docker CLI on every connection attempt.
     #[must_use]
     pub fn new() -> Self {
-        Self::default()
+        Self::build(
+            Arc::new(endpoint::resolve_from_system),
+            REQUEST_TIMEOUT_SECS,
+        )
+    }
+
+    /// Always uses `endpoint`.
+    #[must_use]
+    pub fn for_endpoint(endpoint: ResolvedEndpoint) -> Self {
+        Self::build(Arc::new(move || Ok(endpoint.clone())), REQUEST_TIMEOUT_SECS)
+    }
+
+    /// A new service with the same endpoint resolution and another request
+    /// timeout. Streams are only subject to it until the Engine answers.
+    #[must_use]
+    pub fn with_request_timeout(&self, secs: u64) -> Self {
+        Self::build(Arc::clone(&self.shared.resolve), secs)
+    }
+
+    fn build(resolve: Arc<Resolver>, request_timeout: u64) -> Self {
+        Self {
+            shared: Arc::new(Shared {
+                resolve,
+                request_timeout,
+                client: Mutex::default(),
+                generation: watch::Sender::new(0),
+                streams: StreamRegistry::default(),
+            }),
+        }
     }
 
     /// Resolves the endpoint and reports its status. Failures are part of the value.
     pub async fn connection_status(&self) -> ConnectionStatus {
-        match endpoint::resolve_from_system() {
+        match (self.shared.resolve)() {
             Ok(endpoint) => self.connection_status_for(endpoint).await,
             Err(error) => ConnectionStatus::Disconnected {
                 endpoint: None,
@@ -112,7 +171,7 @@ impl DockerService {
 
     /// The current endpoint and its client, for a request whose failure is classified by `failed`.
     pub(crate) async fn docker(&self) -> Result<(ResolvedEndpoint, Docker), DockerError> {
-        let endpoint = endpoint::resolve_from_system()?;
+        let endpoint = (self.shared.resolve)()?;
         let docker = self.client(&endpoint).await?;
         Ok((endpoint, docker))
     }
@@ -124,8 +183,9 @@ impl DockerService {
         {
             return Ok(docker.clone());
         }
-        let docker = connect(endpoint).await?;
+        let docker = connect(endpoint, self.shared.request_timeout).await?;
         *self.cached() = Some((endpoint.clone(), docker.clone(), None));
+        self.shared.generation.send_modify(|g| *g += 1);
         Ok(docker)
     }
 
@@ -133,21 +193,39 @@ impl DockerService {
     pub(crate) fn failed(&self, err: &BollardError, endpoint: &ResolvedEndpoint) -> DockerError {
         let error = DockerError::from_bollard(err, &endpoint.uri);
         if error.is_connection_level() {
-            *self.cached() = None;
+            self.drop_client();
         }
         error
     }
 
+    /// Makes the next request reconnect.
+    pub(crate) fn drop_client(&self) {
+        if self.cached().take().is_some() {
+            self.shared.generation.send_modify(|g| *g += 1);
+        }
+    }
+
+    /// Changes whenever the cached client is replaced or dropped.
+    pub(crate) fn generation(&self) -> watch::Receiver<u64> {
+        self.shared.generation.subscribe()
+    }
+
+    pub(crate) fn streams(&self) -> &StreamRegistry {
+        &self.shared.streams
+    }
+
     fn cached(&self) -> MutexGuard<'_, Option<Cached>> {
-        self.client.lock().unwrap_or_else(PoisonError::into_inner)
+        self.shared
+            .client
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 }
 
-async fn connect(endpoint: &ResolvedEndpoint) -> Result<Docker, DockerError> {
+async fn connect(endpoint: &ResolvedEndpoint, timeout: u64) -> Result<Docker, DockerError> {
     let classify = |err: BollardError| DockerError::from_bollard(&err, &endpoint.uri);
-    let docker =
-        Docker::connect_with_socket(&endpoint.uri, REQUEST_TIMEOUT_SECS, API_DEFAULT_VERSION)
-            .map_err(classify)?;
+    let docker = Docker::connect_with_socket(&endpoint.uri, timeout, API_DEFAULT_VERSION)
+        .map_err(classify)?;
     docker.ping().await.map_err(classify)?;
     // Lowers the client version to the server's if the server is older; never raises it.
     let docker = docker.negotiate_version().await.map_err(classify)?;
