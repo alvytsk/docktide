@@ -1,5 +1,5 @@
 import { createMemoryHistory } from "@tanstack/react-router";
-import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
+import { beforeEach, describe, expect, it, test, vi } from "vite-plus/test";
 import { useDetailsTab } from "@/stores/details-tab";
 import { createAppRouter } from "./router";
 
@@ -33,6 +33,11 @@ describe("routes", () => {
   test("a container opens on the last used tab", async () => {
     useDetailsTab.setState({ tab: "inspect" });
     expect((await landOn("/containers/abc")).path).toBe("/containers/abc/inspect");
+  });
+
+  it("redirects /containers/$id to the stats tab when it was used last", async () => {
+    useDetailsTab.getState().setTab("stats");
+    expect((await landOn("/containers/abc")).path).toBe("/containers/abc/stats");
   });
 
   test("the logs tab is remembered too", async () => {

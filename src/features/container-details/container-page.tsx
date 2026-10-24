@@ -20,6 +20,9 @@ function Tabs({ id }: { id: string }) {
       <Link to="/containers/$id/overview" params={{ id }} className={tabClass}>
         Overview
       </Link>
+      <Link to="/containers/$id/stats" params={{ id }} className={tabClass}>
+        Stats
+      </Link>
       <Link to="/containers/$id/logs" params={{ id }} className={tabClass}>
         Logs
       </Link>
