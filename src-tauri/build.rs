@@ -5,6 +5,7 @@ fn main() {
         tauri_build::AppManifest::new().commands(&[
             "get_connection_status",
             "subscribe_live_updates",
+            "subscribe_stats",
             "list_containers",
             "get_container",
             "start_container",

@@ -11,6 +11,7 @@ import { Toaster } from "@/components/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { connectionQueryKey } from "@/features/connection/use-connection-status";
 import { useLiveUpdates } from "@/features/live-updates/use-live-updates";
+import { useStatsSubscription } from "@/features/stats/use-stats";
 import { isConnectionLevel } from "@/lib/errors";
 
 // Any request that finds Docker unreachable refreshes the connection status at once,
@@ -48,10 +49,16 @@ function LiveUpdates() {
   return null;
 }
 
+function Stats() {
+  useStatsSubscription();
+  return null;
+}
+
 export function Providers({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <LiveUpdates />
+      <Stats />
       <TooltipProvider delay={300}>
         <Toaster>{children}</Toaster>
       </TooltipProvider>
