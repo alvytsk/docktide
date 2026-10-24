@@ -100,3 +100,27 @@ it("notifies subscribers once per push or tick", () => {
   vi.advanceTimersByTime(1000);
   expect(listener).toHaveBeenCalledTimes(2);
 });
+
+// Throws like a browser when a global timer function is called as a method.
+const guard = <A extends unknown[], R>(fn: (...args: A) => R) =>
+  vi.fn(function (this: unknown, ...args: A) {
+    if (this !== undefined && this !== globalThis) throw new TypeError("Illegal invocation");
+    return fn(...args);
+  });
+it("calls the default timers unbound", () => {
+  const realSet = globalThis.setInterval;
+  const realClear = globalThis.clearInterval;
+  const set = guard((f: () => void, ms: number) => realSet(f, ms));
+  const clear = guard((id: ReturnType<typeof setInterval>) => realClear(id));
+  vi.stubGlobal("setInterval", set);
+  vi.stubGlobal("clearInterval", clear);
+  try {
+    const store = new StatsStore();
+    store.push([sample("a", 0)], T0);
+    store.tick(T0 + 601_000);
+    expect(set).toHaveBeenCalled();
+    expect(clear).toHaveBeenCalled();
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});

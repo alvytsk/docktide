@@ -19,7 +19,14 @@ export class StatsStore {
   private listeners = new Set<() => void>();
   private timer: ReturnType<typeof setInterval> | null = null;
 
-  constructor(private timers = { setInterval, clearInterval }) {}
+  // The defaults wrap the globals: browsers throw "Illegal invocation" when they are
+  // called as methods of another object.
+  constructor(
+    private timers = {
+      setInterval: (fn: () => void, ms: number) => setInterval(fn, ms),
+      clearInterval: (id: ReturnType<typeof setInterval>) => clearInterval(id),
+    },
+  ) {}
 
   push(samples: StatsSample[], now = Date.now()) {
     if (samples.length === 0) return;
