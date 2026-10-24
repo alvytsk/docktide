@@ -8,6 +8,30 @@ it("picks a nice scale", () => {
   expect(niceScale(3 * 1024 ** 2, 0, "bytes")).toEqual({ max: 4 * 1024 ** 2, step: 1024 ** 2 });
   expect(niceScale(0, 0, "decimal")).toEqual({ max: 1, step: 0.25 });
   expect(niceScale(0, 0, "bytes")).toEqual({ max: 1024, step: 256 });
+  expect(niceScale(100, 100, "decimal")).toEqual({ max: 100, step: 25 });
+  expect(niceScale(100 * 1024 ** 2, 0, "bytes")).toEqual({
+    max: 125 * 1024 ** 2,
+    step: 25 * 1024 ** 2,
+  });
+});
+
+it("ignores non-finite data", () => {
+  expect(niceScale(Infinity, 0, "decimal")).toEqual({ max: 1, step: 0.25 });
+  expect(niceScale(NaN, 100, "decimal")).toEqual({ max: 100, step: 25 });
+});
+
+it.each([
+  ["bytes", 1024, 8 * 1024 ** 3],
+  ["decimal", 0.01, 10_000],
+] as const)("always finds a scale across the %s range", (kind, from, to) => {
+  for (let v = from; v <= to; v *= 1.3) {
+    const { max, step } = niceScale(v, 0, kind);
+    expect(Number.isFinite(max)).toBe(true);
+    expect(step).toBeGreaterThan(0);
+    expect(max / step).toBeGreaterThanOrEqual(3 - 1e-9);
+    expect(max / step).toBeLessThanOrEqual(5 + 1e-9);
+    expect(max).toBeGreaterThanOrEqual(v);
+  }
 });
 
 it("grows the maximum only while the data needs it", () => {
@@ -37,14 +61,29 @@ it("finds the nearest sample time", () => {
   expect(nearestIndex([], 5)).toBe(-1);
 });
 
+const cpu = (x: StatsPoint) => x.cpuPercent;
+const point = (t: number, cpuPercent: number, breakBefore = false): StatsPoint => ({
+  id: "c",
+  time: "",
+  streamStart: false,
+  cpuPercent,
+  memoryUsage: null,
+  memoryLimit: null,
+  networkRx: null,
+  networkTx: null,
+  blockRead: null,
+  blockWrite: null,
+  pids: null,
+  t,
+  breakBefore,
+});
+
 it("chart columns put a null point at each break", () => {
-  const p = (t: number, cpuPercent: number, breakBefore = false) =>
-    ({ t, cpuPercent, breakBefore }) as StatsPoint;
   const { times, values } = chartColumns(
-    [p(0, 1), p(1000, 2), p(5000, 3, true)],
-    [(x) => x.cpuPercent],
+    [point(0, 1), point(1000, 2), point(5000, 3, true)],
+    [cpu],
   );
   expect(times).toEqual([0, 1000, 3000, 5000]);
   expect(values).toEqual([[1, 2, null, 3]]);
-  expect(chartColumns([p(0, 1, true)], [(x) => x.cpuPercent]).times).toEqual([0]);
+  expect(chartColumns([point(0, 1, true)], [cpu]).times).toEqual([0]);
 });

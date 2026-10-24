@@ -2,21 +2,15 @@ import type { StatsPoint } from "./stats-store";
 
 const EPS = 1e-9;
 
-/** Gridline step and y maximum: 3 to 5 intervals of a 1, 2, 2.5, 5 × base^n step, with headroom above the data. */
-export function niceScale(
-  dataMax: number,
-  minMax: number,
-  kind: "decimal" | "bytes",
-): { max: number; step: number } {
-  const base = kind === "bytes" ? 1024 : 10;
-  const target = Math.max(dataMax, minMax);
-  if (target <= 0) return { max: base === 10 ? 1 : 1024, step: base === 10 ? 0.25 : 256 };
-  const e = Math.floor(Math.log(target) / Math.log(base));
+/** Decimal search: 3 to 5 intervals of a 1, 2, 2.5, 5 × 10^n step; headroom over the data only when it exceeds `minMax`. */
+function niceDecimal(dataMax: number, minMax: number): { max: number; step: number } {
+  const e = Math.floor(Math.log10(Math.max(dataMax, minMax)));
   let best = { max: Infinity, step: 0 };
   for (let n = e - 2; n <= e + 1; n++) {
     for (const m of [1, 2, 2.5, 5]) {
-      const step = m * base ** n;
-      const count = Math.max(Math.floor(dataMax / step + EPS) + 1, Math.ceil(minMax / step - EPS));
+      const step = m * 10 ** n;
+      const count =
+        dataMax > minMax ? Math.floor(dataMax / step + EPS) + 1 : Math.ceil(minMax / step - EPS);
       const max = count * step;
       if (count < 3 || count > 5) continue;
       if (max < best.max - EPS || (Math.abs(max - best.max) <= EPS && step > best.step)) {
@@ -25,6 +19,22 @@ export function niceScale(
     }
   }
   return best;
+}
+
+/** Gridline step and y maximum for 0 to max; bytes search in the largest 1024^n unit the data reaches. */
+export function niceScale(
+  dataMax: number,
+  minMax: number,
+  kind: "decimal" | "bytes",
+): { max: number; step: number } {
+  const data = Number.isFinite(dataMax) && dataMax > 0 ? dataMax : 0;
+  const min = Number.isFinite(minMax) && minMax > 0 ? minMax : 0;
+  const target = Math.max(data, min);
+  const bytes = kind === "bytes";
+  if (target <= 0) return bytes ? { max: 1024, step: 256 } : { max: 1, step: 0.25 };
+  const unit = bytes ? 1024 ** Math.max(0, Math.floor(Math.log(target) / Math.log(1024))) : 1;
+  const { max, step } = niceDecimal(data / unit, min / unit);
+  return { max: max * unit, step: step * unit };
 }
 
 /** The y maximum grows at once but shrinks only when the data falls below a quarter of it. */
