@@ -6,6 +6,7 @@ import type { ContainerSummary } from "@/bindings/ContainerSummary";
 import type { IpcError } from "@/bindings/IpcError";
 import type { LiveUpdate } from "@/bindings/LiveUpdate";
 import type { LogEvent } from "@/bindings/LogEvent";
+import type { StatsSample } from "@/bindings/StatsSample";
 import type { ContainerAction } from "@/features/containers/list";
 import { toIpcError } from "./errors";
 
@@ -27,6 +28,9 @@ export const getConnectionStatus = () => call<ConnectionStatus>("get_connection_
 /** Replaces any previous subscription; Rust ends it when the page reloads. */
 export const subscribeLiveUpdates = (onUpdate: (update: LiveUpdate) => void) =>
   call<null>("subscribe_live_updates", { onUpdate: new Channel<LiveUpdate>(onUpdate) });
+/** Replaces any previous subscription; one batch per second while containers run. */
+export const subscribeStats = (onStats: (samples: StatsSample[]) => void) =>
+  call<null>("subscribe_stats", { onStats: new Channel<StatsSample[]>(onStats) });
 export const listContainers = () => call<ContainerSummary[]>("list_containers");
 export const getContainer = (id: string) => call<ContainerInspect>("get_container", { id });
 export const runContainerAction = (action: ContainerAction, id: string) =>

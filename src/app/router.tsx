@@ -11,6 +11,7 @@ import { ContainerPage } from "@/features/container-details/container-page";
 import { InspectTab } from "@/features/container-details/inspect-tab";
 import { OverviewTab } from "@/features/container-details/overview-tab";
 import { LogsTab } from "@/features/logs/logs-tab";
+import { StatsTab } from "@/features/stats/stats-tab";
 import { ContainersPage } from "@/features/containers/containers-page";
 import { useDetailsTab, type DetailsTab } from "@/stores/details-tab";
 import { NotFound, Shell } from "./shell";
@@ -48,6 +49,7 @@ const containerRoute = createRoute({
 
 const TAB_PATHS = {
   overview: "/containers/$id/overview",
+  stats: "/containers/$id/stats",
   logs: "/containers/$id/logs",
   inspect: "/containers/$id/inspect",
 } as const satisfies Record<DetailsTab, string>;
@@ -65,6 +67,13 @@ const overviewRoute = createRoute({
   path: "overview",
   component: OverviewTab,
   onEnter: () => useDetailsTab.getState().setTab("overview"),
+});
+
+const statsRoute = createRoute({
+  getParentRoute: () => containerRoute,
+  path: "stats",
+  component: StatsTab,
+  onEnter: () => useDetailsTab.getState().setTab("stats"),
 });
 
 const logsRoute = createRoute({
@@ -85,7 +94,13 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   containersRoute.addChildren([
     containerListRoute,
-    containerRoute.addChildren([containerIndexRoute, overviewRoute, logsRoute, inspectRoute]),
+    containerRoute.addChildren([
+      containerIndexRoute,
+      overviewRoute,
+      statsRoute,
+      logsRoute,
+      inspectRoute,
+    ]),
   ]),
 ]);
 

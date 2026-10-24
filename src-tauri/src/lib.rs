@@ -1,6 +1,6 @@
 use docktide_core::{
     ConnectionStatus, ContainerInspect, ContainerSummary, DockerService, IpcError, LiveUpdate,
-    LogEvent, SubscriptionId,
+    LogEvent, StatsSample, SubscriptionId,
 };
 use tauri::ipc::Channel;
 use tauri::webview::PageLoadEvent;
@@ -22,6 +22,16 @@ async fn subscribe_live_updates(
     on_update: Channel<LiveUpdate>,
 ) -> Result<(), IpcError> {
     docker.subscribe_live_updates(move |update| on_update.send(update).is_ok());
+    Ok(())
+}
+
+/// Replaces any previous subscriber. Streams end when the page reloads (see `run`).
+#[tauri::command]
+async fn subscribe_stats(
+    docker: State<'_, DockerService>,
+    on_stats: Channel<Vec<StatsSample>>,
+) -> Result<(), IpcError> {
+    docker.subscribe_stats(move |samples| on_stats.send(samples).is_ok());
     Ok(())
 }
 
@@ -106,6 +116,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_connection_status,
             subscribe_live_updates,
+            subscribe_stats,
             list_containers,
             get_container,
             start_container,

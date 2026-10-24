@@ -6,10 +6,11 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use bollard::errors::Error as BollardError;
 use bollard::{API_DEFAULT_VERSION, ClientVersion, Docker};
 use serde::Serialize;
-use tokio::sync::watch;
+use tokio::sync::{broadcast, watch};
 
 use crate::endpoint::{self, ResolvedEndpoint};
 use crate::error::{DockerError, IpcError};
+use crate::events::{CONTAINER_EVENT_CAPACITY, ContainerEvent};
 use crate::streams::StreamRegistry;
 use crate::system::EngineInfo;
 
@@ -65,6 +66,8 @@ struct Shared {
     /// Bumped whenever the cached client is replaced or dropped.
     generation: watch::Sender<u64>,
     streams: StreamRegistry,
+    /// Relevant container events, published by the events supervisor.
+    container_events: broadcast::Sender<ContainerEvent>,
 }
 
 impl fmt::Debug for DockerService {
@@ -113,8 +116,19 @@ impl DockerService {
                 client: Mutex::default(),
                 generation: watch::Sender::new(0),
                 streams: StreamRegistry::default(),
+                container_events: broadcast::Sender::new(CONTAINER_EVENT_CAPACITY),
             }),
         }
+    }
+
+    /// Container events seen by the events supervisor from now on.
+    pub(crate) fn container_events(&self) -> broadcast::Receiver<ContainerEvent> {
+        self.shared.container_events.subscribe()
+    }
+
+    /// Having no subscribers is not an error.
+    pub(crate) fn publish_container_event(&self, event: ContainerEvent) {
+        let _ = self.shared.container_events.send(event);
     }
 
     /// Resolves the endpoint and reports its status. Failures are part of the value.

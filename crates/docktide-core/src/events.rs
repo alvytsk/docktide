@@ -49,30 +49,42 @@ fn is_relevant(action: &str) -> bool {
     ACTIONS.contains(&action) || action.starts_with("health_status")
 }
 
-/// Container id of an event that should trigger a refetch.
-fn relevant_id(event: EventMessage) -> Option<String> {
-    if event.typ != Some(EventMessageTypeEnum::CONTAINER)
-        || !event.action.as_deref().is_some_and(is_relevant)
-    {
+/// A relevant container event, as seen by in-process subscribers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ContainerEvent {
+    pub id: String,
+    pub action: String,
+}
+
+/// Events buffered per subscriber before the slowest one starts lagging.
+pub(crate) const CONTAINER_EVENT_CAPACITY: usize = 256;
+
+/// The event if it should trigger a refetch.
+fn relevant_event(event: EventMessage) -> Option<ContainerEvent> {
+    let action = event.action.filter(|action| is_relevant(action))?;
+    if event.typ != Some(EventMessageTypeEnum::CONTAINER) {
         return None;
     }
-    event.actor?.id
+    Some(ContainerEvent {
+        id: event.actor?.id?,
+        action,
+    })
 }
 
 /// Retry delays of 1, 2, 4, 8, and 16 s, then 30 s.
 #[derive(Debug, Default)]
-struct Backoff {
+pub(crate) struct Backoff {
     attempt: u32,
 }
 
 impl Backoff {
-    fn next(&mut self) -> Duration {
+    pub(crate) fn next(&mut self) -> Duration {
         let secs = (1 << self.attempt.min(5)).min(30);
         self.attempt += 1;
         Duration::from_secs(secs)
     }
 
-    fn reset(&mut self) {
+    pub(crate) fn reset(&mut self) {
         self.attempt = 0;
     }
 }
@@ -131,8 +143,13 @@ async fn supervise(service: &DockerService, sink: &(dyn Fn(LiveUpdate) -> bool +
                 connected = Some(true);
                 backoff.reset();
                 tracing::info!(endpoint = %endpoint.uri, "Docker events stream open");
+                let publish = |event| service.publish_container_event(event);
                 tokio::select! {
-                    end = forward(docker.events(Some(container_events(since))), sink) => {
+                    end = forward(
+                        docker.events(Some(container_events(since))),
+                        sink,
+                        &publish,
+                    ) => {
                         let error = match end {
                             End::SinkClosed => return,
                             End::Failed(err) => stream_failure(service, &err, endpoint),
@@ -206,11 +223,12 @@ enum End {
     SinkClosed,
 }
 
-/// Sends coalesced `ContainersChanged` hints for `events` until it ends.
-/// Pending ids are flushed before returning on `Eof` or `Failed`.
+/// Publishes each relevant event, then sends coalesced `ContainersChanged`
+/// hints for `events` until it ends. Pending ids are flushed before returning on `Eof` or `Failed`.
 async fn forward(
     events: impl Stream<Item = Result<EventMessage, BollardError>>,
     sink: &(dyn Fn(LiveUpdate) -> bool + Send + Sync),
+    publish: &(dyn Fn(ContainerEvent) + Send + Sync),
 ) -> End {
     let mut events = pin!(events);
     let mut ids: Vec<String> = Vec::new();
@@ -231,7 +249,9 @@ async fn forward(
         tokio::select! {
             item = events.next() => match item {
                 Some(Ok(event)) => {
-                    if let Some(id) = relevant_id(event) {
+                    if let Some(event) = relevant_event(event) {
+                        let id = event.id.clone();
+                        publish(event);
                         if !ids.contains(&id) {
                             ids.push(id);
                         }
@@ -364,18 +384,18 @@ mod tests {
     #[test]
     fn only_container_events_with_an_id_count() {
         assert_eq!(
-            relevant_id(event(EventMessageTypeEnum::CONTAINER, "start", "abc")),
+            relevant_event(event(EventMessageTypeEnum::CONTAINER, "start", "abc")).map(|e| e.id),
             Some("abc".into())
         );
         assert_eq!(
-            relevant_id(event(EventMessageTypeEnum::IMAGE, "delete", "abc")),
+            relevant_event(event(EventMessageTypeEnum::IMAGE, "delete", "abc")),
             None
         );
         let mut anonymous = event(EventMessageTypeEnum::CONTAINER, "start", "abc");
         anonymous.actor = None;
-        assert_eq!(relevant_id(anonymous), None);
+        assert_eq!(relevant_event(anonymous), None);
         assert_eq!(
-            relevant_id(event(EventMessageTypeEnum::CONTAINER, "exec_die", "abc")),
+            relevant_event(event(EventMessageTypeEnum::CONTAINER, "exec_die", "abc")),
             None
         );
     }
@@ -421,7 +441,7 @@ mod tests {
         let recorder = Recorder::default();
         let sink = recorder.sink(Instant::now());
         let (tx, events) = channel();
-        let task = tokio::spawn(async move { forward(events, &sink).await });
+        let task = tokio::spawn(async move { forward(events, &sink, &|_| {}).await });
         tx.send(container("start", "a")).unwrap();
         tokio::time::sleep(Duration::from_millis(100)).await;
         tx.send(container("die", "b")).unwrap();
@@ -439,11 +459,34 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn forward_publishes_each_relevant_event_before_coalescing() {
+        let recorder = Recorder::default();
+        let sink = recorder.sink(Instant::now());
+        let published = Mutex::new(Vec::new());
+        let events = stream::iter([
+            container("start", "a"),
+            container("exec_start: /bin/sh -c true", "a"),
+            container("die", "b"),
+        ]);
+        let publish = |e| published.lock().unwrap().push(e);
+        assert!(matches!(forward(events, &sink, &publish).await, End::Eof));
+        let expected = |id: &str, action: &str| ContainerEvent {
+            id: id.into(),
+            action: action.into(),
+        };
+        assert_eq!(
+            *published.lock().unwrap(),
+            [expected("a", "start"), expected("b", "die")]
+        );
+        assert_eq!(recorder.updates(), [changed(&["a", "b"])]);
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn separate_bursts_become_separate_hints() {
         let recorder = Recorder::default();
         let sink = recorder.sink(Instant::now());
         let (tx, events) = channel();
-        let task = tokio::spawn(async move { forward(events, &sink).await });
+        let task = tokio::spawn(async move { forward(events, &sink, &|_| {}).await });
         tx.send(container("start", "a")).unwrap();
         tokio::time::sleep(Duration::from_secs(1)).await;
         tx.send(container("start", "b")).unwrap();
@@ -461,7 +504,7 @@ mod tests {
             container("exec_start: /bin/sh -c true", "a"),
             Ok(event(EventMessageTypeEnum::IMAGE, "pull", "busybox")),
         ]);
-        assert!(matches!(forward(events, &sink).await, End::Eof));
+        assert!(matches!(forward(events, &sink, &|_| {}).await, End::Eof));
         assert_eq!(recorder.updates(), []);
     }
 
@@ -474,7 +517,7 @@ mod tests {
             Err(BollardError::RequestTimeoutError),
         ]);
         assert!(matches!(
-            forward(events, &sink).await,
+            forward(events, &sink, &|_| {}).await,
             End::Failed(BollardError::RequestTimeoutError)
         ));
         assert_eq!(recorder.updates(), [changed(&["a"])]);
@@ -484,7 +527,7 @@ mod tests {
     async fn a_closed_sink_stops_forwarding() {
         let (tx, events) = channel();
         tx.send(container("start", "a")).unwrap();
-        let end = forward(events, &|_| false).await;
+        let end = forward(events, &|_| false, &|_| {}).await;
         assert!(matches!(end, End::SinkClosed));
     }
 }

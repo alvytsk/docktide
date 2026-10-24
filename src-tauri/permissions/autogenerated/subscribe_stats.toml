@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-subscribe-stats"
+description = "Enables the subscribe_stats command without any pre-configured scope."
+commands.allow = ["subscribe_stats"]
+
+[[permission]]
+identifier = "deny-subscribe-stats"
+description = "Denies the subscribe_stats command without any pre-configured scope."
+commands.deny = ["subscribe_stats"]

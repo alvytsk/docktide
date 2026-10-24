@@ -13,7 +13,7 @@ use bollard::query_parameters::{
 use bollard::{API_DEFAULT_VERSION, Docker};
 use docktide_core::{
     ConnectionStatus, ContainerState, DockerError, DockerService, KeyValue, LiveUpdate, LogEvent,
-    LogLine, LogStream, MountType, Protocol, endpoint,
+    LogLine, LogStream, MountType, Protocol, StatsSample, endpoint,
 };
 use futures_util::TryStreamExt;
 
@@ -506,4 +506,121 @@ async fn logs_of_a_removed_container_are_not_found() {
         panic!("expected an error, got {end:?}");
     };
     assert_eq!(error.kind, docktide_core::ErrorKind::NotFound, "{error:?}");
+}
+
+/// Stats of one container from a subscription, with live updates subscribed
+/// for its lifecycle events. Other containers' samples are dropped. (The
+/// supervisor reads the stats of every running container; it changes none.)
+struct StatsOf {
+    id: String,
+    rx: tokio::sync::mpsc::UnboundedReceiver<Vec<StatsSample>>,
+    _updates: tokio::sync::mpsc::UnboundedReceiver<LiveUpdate>,
+}
+
+impl StatsOf {
+    async fn subscribe(service: &DockerService, id: &str) -> Self {
+        let (tx, mut updates) = tokio::sync::mpsc::unbounded_channel();
+        service.subscribe_live_updates(move |update| tx.send(update).is_ok());
+        assert_eq!(updates.recv().await, Some(LiveUpdate::Connected));
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        service.subscribe_stats(move |batch| tx.send(batch).is_ok());
+        Self {
+            id: id.to_owned(),
+            rx,
+            _updates: updates,
+        }
+    }
+
+    /// The next sample of the container matching `want`.
+    async fn next(&mut self, want: impl Fn(&StatsSample) -> bool) -> StatsSample {
+        loop {
+            let batch = self.rx.recv().await.expect("the stats supervisor stopped");
+            if let Some(sample) = batch.into_iter().find(|s| s.id == self.id && want(s)) {
+                return sample;
+            }
+        }
+    }
+
+    /// The next sample of the container matching `want`, within `within`.
+    async fn sample(
+        &mut self,
+        within: Duration,
+        want: impl Fn(&StatsSample) -> bool,
+    ) -> StatsSample {
+        tokio::time::timeout(within, self.next(want))
+            .await
+            .expect("no matching sample in time")
+    }
+
+    /// Whether no sample of the container arrives within `within`.
+    async fn quiet(&mut self, within: Duration) -> bool {
+        tokio::time::timeout(within, self.next(|_| true))
+            .await
+            .is_err()
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires Docker"]
+async fn stats_a_busy_loop_reports_cpu() {
+    let container = TestContainer::create_with(
+        "stats-cpu",
+        ContainerCreateBody {
+            cmd: Some(vec!["sh".into(), "-c".into(), "while :; do :; done".into()]),
+            ..Default::default()
+        },
+    )
+    .await;
+    let service = DockerService::new();
+    service.start_container(&container.id).await.unwrap();
+    let mut stats = StatsOf::subscribe(&service, &container.id).await;
+    // The first sample has no CPU value; the second comes 1 s later, and
+    // batching adds up to 1 s.
+    let sample = stats
+        .sample(Duration::from_secs(5), |s| s.cpu_percent.is_some())
+        .await;
+    assert!(sample.cpu_percent > Some(50.0), "{sample:?}");
+    assert!(
+        sample.memory_usage.is_some() && sample.pids.is_some(),
+        "{sample:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires Docker"]
+async fn stats_stop_closes_and_start_reopens() {
+    let container = TestContainer::create("stats-stop").await;
+    let service = DockerService::new();
+    service.start_container(&container.id).await.unwrap();
+    let mut stats = StatsOf::subscribe(&service, &container.id).await;
+    stats.sample(Duration::from_secs(5), |_| true).await;
+
+    service.stop_container(&container.id).await.unwrap();
+    // Samples read before the stop may still be in the next batch.
+    let _ = stats.quiet(Duration::from_millis(1500)).await;
+    assert!(
+        stats.quiet(Duration::from_secs(2)).await,
+        "samples after the stop"
+    );
+
+    service.start_container(&container.id).await.unwrap();
+    let sample = stats.sample(Duration::from_secs(5), |_| true).await;
+    assert!(sample.stream_start, "{sample:?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires Docker"]
+async fn stats_restart_starts_a_new_stream() {
+    let container = TestContainer::create("stats-restart").await;
+    let service = DockerService::new();
+    service.start_container(&container.id).await.unwrap();
+    let mut stats = StatsOf::subscribe(&service, &container.id).await;
+    stats
+        .sample(Duration::from_secs(5), |s| !s.stream_start)
+        .await;
+
+    service.restart_container(&container.id).await.unwrap();
+    stats
+        .sample(Duration::from_secs(5), |s| s.stream_start)
+        .await;
 }

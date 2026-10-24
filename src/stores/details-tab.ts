@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type DetailsTab = "overview" | "logs" | "inspect";
+export type DetailsTab = "overview" | "stats" | "logs" | "inspect";
 
 type DetailsTabStore = { tab: DetailsTab; setTab: (tab: DetailsTab) => void };
 

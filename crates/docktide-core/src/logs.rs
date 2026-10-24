@@ -130,7 +130,7 @@ fn logs_options(tail: Option<u32>, after: Option<&str>) -> LogsOptions {
 
 /// Rewrites Docker's RFC 3339 UTC timestamp with a 9-digit fraction, so
 /// timestamps compare as strings. Docker trims trailing zeros from the fraction.
-fn normalize_timestamp(timestamp: &str) -> String {
+pub(crate) fn normalize_timestamp(timestamp: &str) -> String {
     let Some(base) = timestamp.strip_suffix('Z') else {
         return timestamp.to_owned();
     };
@@ -139,7 +139,7 @@ fn normalize_timestamp(timestamp: &str) -> String {
 }
 
 /// Whole Unix seconds of an RFC 3339 UTC timestamp, for Docker's `since`.
-fn unix_seconds(timestamp: &str) -> Option<i64> {
+pub(crate) fn unix_seconds(timestamp: &str) -> Option<i64> {
     let field = |range: std::ops::Range<usize>| timestamp.get(range)?.parse::<i64>().ok();
     let (year, month, day) = (field(0..4)?, field(5..7)?, field(8..10)?);
     let (hour, minute, second) = (field(11..13)?, field(14..16)?, field(17..19)?);
