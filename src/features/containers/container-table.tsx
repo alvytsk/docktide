@@ -50,7 +50,7 @@ function Columns() {
     <TableHeader>
       <TableRow>
         <TableHead>Name</TableHead>
-        <TableHead className="w-full">Image</TableHead>
+        <TableHead className="w-[25%]">Image</TableHead>
         <TableHead>State</TableHead>
         <TableHead>Status</TableHead>
         <TableHead className="text-right">CPU</TableHead>
@@ -81,7 +81,7 @@ export function ContainerTable({ containers }: { containers?: ContainerSummary[]
                   </Link>
                   <div className="font-mono text-xs text-muted-foreground">{c.id.slice(0, 12)}</div>
                 </TableCell>
-                <TableCell className="w-full max-w-0 truncate font-mono text-xs" title={c.image}>
+                <TableCell className="w-[25%] max-w-0 truncate font-mono text-xs" title={c.image}>
                   {c.image}
                 </TableCell>
                 <TableCell>
