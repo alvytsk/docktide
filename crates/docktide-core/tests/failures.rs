@@ -10,7 +10,7 @@ use std::os::fd::AsRawFd;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -131,6 +131,8 @@ struct LogStreams {
 struct StatsStreams {
     list: Mutex<String>,
     list_delay: Mutex<Duration>,
+    /// Answer the next `/containers/json` with 500.
+    fail_list: AtomicBool,
     missing: Mutex<HashSet<String>>,
     open: Mutex<Vec<(String, UnixStream)>>,
     closed: AtomicUsize,
@@ -143,6 +145,7 @@ impl Default for StatsStreams {
         Self {
             list: Mutex::new("[]".to_owned()),
             list_delay: Mutex::default(),
+            fail_list: AtomicBool::default(),
             missing: Mutex::default(),
             open: Mutex::default(),
             closed: AtomicUsize::default(),
@@ -289,6 +292,11 @@ impl FakeEngine {
     /// Answers `/containers/json` only after `delay`.
     fn delay_lists(&self, delay: Duration) {
         *self.stats.list_delay.lock().unwrap() = delay;
+    }
+
+    /// Answers the next `/containers/json` with 500.
+    fn fail_next_list(&self) {
+        self.stats.fail_list.store(true, Ordering::SeqCst);
     }
 
     /// Answers stats requests for `id` with 404.
@@ -451,7 +459,14 @@ fn serve(
                 "/containers/json" => {
                     let delay = *stats_streams.list_delay.lock().unwrap();
                     std::thread::sleep(delay);
-                    ("200 OK", stats_streams.list.lock().unwrap().clone())
+                    if stats_streams.fail_list.swap(false, Ordering::SeqCst) {
+                        (
+                            "500 Internal Server Error",
+                            r#"{"message":"boom"}"#.to_owned(),
+                        )
+                    } else {
+                        ("200 OK", stats_streams.list.lock().unwrap().clone())
+                    }
                 }
                 "/version" => (
                     "200 OK",
@@ -1059,4 +1074,25 @@ async fn a_lagged_event_receiver_relists() {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     panic!("the supervisor did not re-list");
+}
+
+#[tokio::test]
+async fn a_failed_list_is_retried() {
+    let (engine, service, _updates) = stats_engine("stats-list-retry", &[("a", "running")]).await;
+    engine.fail_next_list();
+    let subscribed = Instant::now();
+    let _batches = Batches::subscribe(&service);
+    engine.wait_for_stats_streams("a", 1).await;
+    assert!(
+        subscribed.elapsed() >= Duration::from_millis(900),
+        "listed again without the backoff"
+    );
+    assert_eq!(engine.requested("/containers/json"), 2);
+    // A generation change would have reopened the events stream.
+    assert_eq!(engine.requested("/events"), 1);
+    assert_eq!(
+        engine.emit("pause", "other"),
+        1,
+        "the events stream was dropped"
+    );
 }

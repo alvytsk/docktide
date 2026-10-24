@@ -13,7 +13,7 @@ use futures_util::StreamExt;
 use serde::Serialize;
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::mpsc;
-use tokio::time::MissedTickBehavior;
+use tokio::time::{Instant, MissedTickBehavior, sleep_until};
 use tokio_util::sync::CancellationToken;
 
 use crate::connection::DockerService;
@@ -261,24 +261,19 @@ impl Streams<'_> {
     }
 
     /// Closes every stream and opens one per running or paused container.
-    async fn relist(&mut self) {
+    async fn relist(&mut self) -> Result<(), DockerError> {
         for (_, running) in self.running.drain() {
             running.cancel.cancel();
         }
-        match self.service.list_containers().await {
-            Ok(containers) => {
-                for container in containers {
-                    if matches!(
-                        container.state,
-                        ContainerState::Running | ContainerState::Paused
-                    ) {
-                        self.open(container.id);
-                    }
-                }
+        for container in self.service.list_containers().await? {
+            if matches!(
+                container.state,
+                ContainerState::Running | ContainerState::Paused
+            ) {
+                self.open(container.id);
             }
-            // The next generation change lists again.
-            Err(error) => tracing::debug!(%error, "listing containers for stats failed"),
         }
+        Ok(())
     }
 }
 
@@ -306,17 +301,35 @@ async fn supervise(
     let mut tick = tokio::time::interval(BATCH_TICK);
     tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
     let mut relist = true;
+    let mut list_backoff = Backoff::default();
+    // Set after a list failed while connected.
+    let mut retry_at: Option<Instant> = None;
     loop {
         if relist {
             relist = false;
+            retry_at = None;
             // Events from before the list are in it.
             events = events.resubscribe();
-            streams.relist().await;
+            let listed = streams.relist().await;
             // A reconnect by the list itself needs no second list.
             generation.mark_unchanged();
+            match listed {
+                Ok(()) => list_backoff.reset(),
+                // The client was dropped; the reconnect changes the generation.
+                Err(error) if error.is_connection_level() => {
+                    tracing::debug!(%error, "listing containers for stats failed");
+                }
+                Err(error) => {
+                    tracing::debug!(%error, "listing containers for stats failed; retrying");
+                    retry_at = Some(Instant::now() + list_backoff.next());
+                }
+            }
         }
         tokio::select! {
             _ = generation.changed() => relist = true,
+            () = sleep_until(retry_at.unwrap_or_else(Instant::now)), if retry_at.is_some() => {
+                relist = true;
+            }
             event = events.recv() => match on_event(event) {
                 Action::Open(id) => streams.open(id),
                 Action::Close(id) => streams.close(&id),
