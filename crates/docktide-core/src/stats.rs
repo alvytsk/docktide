@@ -3,10 +3,28 @@
 // Byte and nanosecond counters stay far below 2^52, so u64 to f64 is exact in practice.
 #![allow(clippy::cast_precision_loss)]
 
-use bollard::models::{ContainerCpuStats, ContainerStatsResponse};
-use serde::Serialize;
+use std::collections::HashMap;
+use std::pin::pin;
+use std::time::Duration;
 
+use bollard::models::{ContainerCpuStats, ContainerStatsResponse};
+use bollard::query_parameters::StatsOptions;
+use futures_util::StreamExt;
+use serde::Serialize;
+use tokio::sync::broadcast::error::RecvError;
+use tokio::sync::mpsc;
+use tokio::time::MissedTickBehavior;
+use tokio_util::sync::CancellationToken;
+
+use crate::connection::DockerService;
+use crate::containers::ContainerState;
+use crate::error::DockerError;
+use crate::events::{Backoff, ContainerEvent};
 use crate::logs::{normalize_timestamp, unix_seconds};
+use crate::streams::SubscriptionId;
+
+/// Samples of all streams leave together once per tick.
+pub(crate) const BATCH_TICK: Duration = Duration::from_secs(1);
 
 /// One derived sample for one container; `None` fields serialize as `null`.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -42,18 +60,10 @@ struct Previous {
 
 /// Derives samples of one stream; make a new one per stream.
 #[derive(Default)]
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "used by the stats supervisor (M2 Task 3)")
-)]
 pub(crate) struct Deriver {
     previous: Option<Previous>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "used by the stats supervisor (M2 Task 3)")
-)]
 impl Deriver {
     /// `None` when `read` is missing or the zero time: the caller closes the stream.
     pub(crate) fn next(&mut self, id: &str, raw: &ContainerStatsResponse) -> Option<StatsSample> {
@@ -147,6 +157,235 @@ fn cpu_percent(now: &ContainerCpuStats, before: &ContainerCpuStats) -> Option<f6
         })
         .unwrap_or(1.0);
     Some(cpu_delta / system_delta * online * 100.0)
+}
+
+impl DockerService {
+    /// Starts the stats supervisor and replaces a previous one. It keeps one
+    /// stats stream per running or paused container and sends their samples to
+    /// `sink` once per `BATCH_TICK`, until cancelled with `cancel_stream` or
+    /// until `sink` returns false. Must be called within a Tokio runtime.
+    pub fn subscribe_stats(
+        &self,
+        sink: impl Fn(Vec<StatsSample>) -> bool + Send + Sync + 'static,
+    ) -> SubscriptionId {
+        let (id, cancel) = self.streams().replace_stats();
+        let service = self.clone();
+        tokio::spawn(async move {
+            tokio::select! {
+                () = supervise(&service, &sink, &cancel) => {}
+                () = cancel.cancelled() => {}
+            }
+            service.streams().remove(id);
+        });
+        id
+    }
+}
+
+/// What a container event means for its stream.
+#[derive(Debug, PartialEq, Eq)]
+enum Action {
+    Open(String),
+    Close(String),
+    Relist,
+    Ignore,
+}
+
+fn on_event(event: Result<ContainerEvent, RecvError>) -> Action {
+    match event {
+        Ok(ContainerEvent { id, action }) => match action.as_str() {
+            "start" => Action::Open(id),
+            "die" | "destroy" => Action::Close(id),
+            _ => Action::Ignore,
+        },
+        // Missed events may include starts.
+        Err(RecvError::Lagged(_)) => Action::Relist,
+        // The service owns the sender, so this does not happen.
+        Err(RecvError::Closed) => Action::Ignore,
+    }
+}
+
+/// An open stream of one container.
+struct Running {
+    cancel: CancellationToken,
+    /// Tells this stream's exit apart from that of a stream it replaced.
+    serial: u64,
+}
+
+/// The streams of one subscription. Each is a child of `parent`.
+struct Streams<'a> {
+    service: &'a DockerService,
+    parent: CancellationToken,
+    running: HashMap<String, Running>,
+    serial: u64,
+    samples: mpsc::UnboundedSender<StatsSample>,
+    exits: mpsc::UnboundedSender<(String, u64)>,
+}
+
+impl Streams<'_> {
+    /// Replaces the container's stream, if any, with a new one.
+    fn open(&mut self, id: String) {
+        self.close(&id);
+        self.serial += 1;
+        let cancel = self.parent.child_token();
+        let running = Running {
+            cancel: cancel.clone(),
+            serial: self.serial,
+        };
+        self.running.insert(id.clone(), running);
+        let (service, samples, exits, serial) = (
+            self.service.clone(),
+            self.samples.clone(),
+            self.exits.clone(),
+            self.serial,
+        );
+        tokio::spawn(async move {
+            tokio::select! {
+                () = follow(&service, &id, &samples) => {}
+                () = cancel.cancelled() => {}
+            }
+            let _ = exits.send((id, serial));
+        });
+    }
+
+    fn close(&mut self, id: &str) {
+        if let Some(running) = self.running.remove(id) {
+            running.cancel.cancel();
+        }
+    }
+
+    /// Forgets a stream that ended by itself, unless it was replaced since.
+    fn exited(&mut self, id: &str, serial: u64) {
+        if self.running.get(id).is_some_and(|r| r.serial == serial) {
+            self.running.remove(id);
+        }
+    }
+
+    /// Closes every stream and opens one per running or paused container.
+    async fn relist(&mut self) {
+        for (_, running) in self.running.drain() {
+            running.cancel.cancel();
+        }
+        match self.service.list_containers().await {
+            Ok(containers) => {
+                for container in containers {
+                    if matches!(
+                        container.state,
+                        ContainerState::Running | ContainerState::Paused
+                    ) {
+                        self.open(container.id);
+                    }
+                }
+            }
+            // The next generation change lists again.
+            Err(error) => tracing::debug!(%error, "listing containers for stats failed"),
+        }
+    }
+}
+
+/// Follows container lifecycle and sends batches of samples. Returns only when
+/// the sink is closed. Every stream closes when this returns or is dropped.
+async fn supervise(
+    service: &DockerService,
+    sink: &(dyn Fn(Vec<StatsSample>) -> bool + Send + Sync),
+    cancel: &CancellationToken,
+) {
+    let mut generation = service.generation();
+    let mut events = service.container_events();
+    let (samples, mut received) = mpsc::unbounded_channel();
+    let (exits, mut exited) = mpsc::unbounded_channel();
+    let parent = cancel.child_token();
+    let _close_streams = parent.clone().drop_guard();
+    let mut streams = Streams {
+        service,
+        parent,
+        running: HashMap::new(),
+        serial: 0,
+        samples,
+        exits,
+    };
+    let mut tick = tokio::time::interval(BATCH_TICK);
+    tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    let mut relist = true;
+    loop {
+        if relist {
+            relist = false;
+            // Events from before the list are in it.
+            events = events.resubscribe();
+            streams.relist().await;
+            // A reconnect by the list itself needs no second list.
+            generation.mark_unchanged();
+        }
+        tokio::select! {
+            _ = generation.changed() => relist = true,
+            event = events.recv() => match on_event(event) {
+                Action::Open(id) => streams.open(id),
+                Action::Close(id) => streams.close(&id),
+                Action::Relist => relist = true,
+                Action::Ignore => {}
+            },
+            Some((id, serial)) = exited.recv() => streams.exited(&id, serial),
+            _ = tick.tick() => {
+                let mut batch = Vec::new();
+                while let Ok(sample) = received.try_recv() {
+                    batch.push(sample);
+                }
+                if !batch.is_empty() && !sink(batch) {
+                    return;
+                }
+            }
+        }
+    }
+}
+
+/// Follows one container's stats, retrying failed streams, until the container
+/// stops or is gone, the connection is lost, or the supervisor is gone.
+async fn follow(service: &DockerService, id: &str, samples: &mpsc::UnboundedSender<StatsSample>) {
+    let mut backoff = Backoff::default();
+    loop {
+        let Ok((endpoint, docker)) = service.docker().await else {
+            return;
+        };
+        let options = StatsOptions {
+            stream: true,
+            one_shot: false,
+        };
+        let mut stats = pin!(docker.stats(id, Some(options)));
+        let mut deriver = Deriver::default();
+        let failure = loop {
+            match stats.next().await {
+                Some(Ok(raw)) => {
+                    let Some(sample) = deriver.next(id, &raw) else {
+                        if let Some(read) = raw
+                            .read
+                            .as_deref()
+                            .filter(|r| !r.is_empty() && !r.starts_with("0001-01-01"))
+                        {
+                            tracing::debug!(id, read, "unparseable stats read time");
+                        }
+                        return;
+                    };
+                    backoff.reset();
+                    if samples.send(sample).is_err() {
+                        return;
+                    }
+                }
+                Some(Err(err)) => break Some(err),
+                None => break None,
+            }
+        };
+        // Not `stream_failure`: one cut stats connection says nothing about the
+        // Engine. A retry that cannot connect is classified as connection-level.
+        match failure.map(|err| service.failed(&err, &endpoint)) {
+            Some(DockerError::NotFound) => return,
+            Some(error) if error.is_connection_level() => {
+                tracing::debug!(id, %error, "stats stream lost its connection");
+                return;
+            }
+            Some(error) => tracing::debug!(id, %error, "stats stream failed"),
+            None => tracing::debug!(id, "stats stream ended"),
+        }
+        tokio::time::sleep(backoff.next()).await;
+    }
 }
 
 #[cfg(test)]
@@ -387,6 +626,39 @@ mod tests {
     fn pids_are_reported() {
         let r = raw(json!({"read": "2026-10-24T10:00:00Z", "pids_stats": {"current": 7}}));
         assert_eq!(Deriver::default().next("c", &r).unwrap().pids, Some(7));
+    }
+
+    #[expect(clippy::unnecessary_wraps, reason = "events arrive as results")]
+    fn event(action: &str, id: &str) -> Result<ContainerEvent, RecvError> {
+        Ok(ContainerEvent {
+            id: id.into(),
+            action: action.into(),
+        })
+    }
+
+    #[test]
+    fn start_opens() {
+        assert_eq!(on_event(event("start", "a")), Action::Open("a".into()));
+    }
+
+    #[test]
+    fn die_and_destroy_close() {
+        assert_eq!(on_event(event("die", "a")), Action::Close("a".into()));
+        assert_eq!(on_event(event("destroy", "a")), Action::Close("a".into()));
+    }
+
+    #[test]
+    fn other_actions_are_ignored() {
+        for action in [
+            "create", "stop", "kill", "pause", "unpause", "restart", "rename",
+        ] {
+            assert_eq!(on_event(event(action, "a")), Action::Ignore, "{action}");
+        }
+    }
+
+    #[test]
+    fn lag_relists() {
+        assert_eq!(on_event(Err(RecvError::Lagged(3))), Action::Relist);
     }
 
     #[test]

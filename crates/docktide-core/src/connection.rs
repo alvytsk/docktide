@@ -122,7 +122,6 @@ impl DockerService {
     }
 
     /// Container events seen by the events supervisor from now on.
-    #[expect(dead_code, reason = "used by the stats supervisor (M2 Task 3)")]
     pub(crate) fn container_events(&self) -> broadcast::Receiver<ContainerEvent> {
         self.shared.container_events.subscribe()
     }

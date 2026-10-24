@@ -18,6 +18,8 @@ pub(crate) struct StreamRegistry {
     tokens: Mutex<HashMap<SubscriptionId, CancellationToken>>,
     /// The one events subscription; a new subscriber replaces it.
     live_updates: Mutex<Option<SubscriptionId>>,
+    /// The one stats subscription, likewise.
+    stats: Mutex<Option<SubscriptionId>>,
 }
 
 impl StreamRegistry {
@@ -31,9 +33,17 @@ impl StreamRegistry {
 
     /// Registers the events producer and cancels the previous one.
     pub(crate) fn replace_live_updates(&self) -> (SubscriptionId, CancellationToken) {
+        self.replace(&self.live_updates)
+    }
+
+    /// Registers the stats producer and cancels the previous one.
+    pub(crate) fn replace_stats(&self) -> (SubscriptionId, CancellationToken) {
+        self.replace(&self.stats)
+    }
+
+    fn replace(&self, slot: &Mutex<Option<SubscriptionId>>) -> (SubscriptionId, CancellationToken) {
         let (id, token) = self.insert();
-        let previous = self
-            .live_updates
+        let previous = slot
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .replace(id);
@@ -126,6 +136,16 @@ mod tests {
         assert_ne!(first, second);
         assert!(first_token.is_cancelled());
         assert!(!second_token.is_cancelled());
+    }
+
+    #[test]
+    fn a_new_stats_producer_replaces_only_the_previous_stats_one() {
+        let registry = StreamRegistry::default();
+        let (_, live_updates) = registry.replace_live_updates();
+        let (_, first) = registry.replace_stats();
+        let (_, second) = registry.replace_stats();
+        assert!(first.is_cancelled());
+        assert!(!second.is_cancelled() && !live_updates.is_cancelled());
     }
 
     #[test]
