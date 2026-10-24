@@ -130,7 +130,7 @@ Consequences:
   store is added only if refetch-on-hint proves too expensive.
 - Zustand never holds server data. A container list in a Zustand store is a bug.
 - Stream data (log lines, stats samples) lives in plain objects owned by the feature, outside
-  TanStack Query and Zustand, and is mutated in place with a version counter.
+  TanStack Query and Zustand, and is versioned with a counter: the logs session mutates in place, the stats store replaces its arrays.
 
 ## 5. IPC contract
 

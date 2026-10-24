@@ -34,7 +34,7 @@ function StatsCells({ id }: { id: string }) {
           memory
         ) : (
           <Tooltip>
-            <TooltipTrigger render={<span />}>{memory}</TooltipTrigger>
+            <TooltipTrigger render={<span tabIndex={0} />}>{memory}</TooltipTrigger>
             <TooltipContent>
               {`${memory} of ${formatBytes(limit ?? 0)} (${formatPercent(percent)})`}
             </TooltipContent>

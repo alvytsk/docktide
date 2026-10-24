@@ -54,7 +54,8 @@ export function StatsTab() {
         <Value label="Memory">
           {formatMemory(current?.memoryUsage ?? null)} /{" "}
           {limit === null ? "Unlimited" : formatBytes(limit)} (
-          {formatPercent(memoryPercent(current?.memoryUsage ?? null, limit))})
+          {formatPercent(memoryPercent(current?.memoryUsage ?? null, current?.memoryLimit ?? null))}
+          )
         </Value>
         <Value label="Network">
           {formatRate(current?.networkRx ?? null)} in / {formatRate(current?.networkTx ?? null)} out

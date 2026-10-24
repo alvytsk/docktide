@@ -51,7 +51,7 @@ of TanStack Query and Zustand.
 
 ### D4: Ten minutes of history
 
-600 samples at Docker's 1 s interval, roughly 50 KB per container. Not
+600 samples at Docker's 1 s interval, roughly 100–150 KB per container. Not
 configurable.
 
 ### D5: CPU on the `docker stats` scale

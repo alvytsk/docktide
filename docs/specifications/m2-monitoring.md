@@ -343,7 +343,7 @@ Resolved on 2026-10-24; to be recorded in ADR 0003 (S4).
    sample anyway; a Rust ring buffer would be a second copy whose only benefit
    is surviving a page reload. Changes overview §4, which planned Rust ring
    buffers; Rust stays the authority for derived values.
-4. **D4 History length:** **10 minutes** (600 samples, roughly 50 KB per container).
+4. **D4 History length:** **10 minutes** (600 samples, roughly 100–150 KB per container).
 5. **D5 CPU scale:** **as `docker stats`**, 100 % per core, so values match the CLI.
 
 Implementation calls (not separately approved):
@@ -409,9 +409,7 @@ Deviations from the plan made during implementation:
 Observations, not fixed in M2:
 
 - Charts show a flat limit line across gaps, and the current-values row can read
-  "— / Unlimited (—)" when nothing is known.
-- A crosshair stays on a chart if the route changes while the pointer is over it,
-  until the next pointer move.
+  "— / Unlimited (—)" before the first sample arrives.
 - A change of theme or screen scale reaches the canvas at the next one-second
   tick, not at once.
 - A cut stats connection logs at `error` level once per container (from the

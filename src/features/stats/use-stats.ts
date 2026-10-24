@@ -6,14 +6,8 @@ import { statsStore } from "./stats-store";
 /** Feeds Docker stats into `statsStore` for the app session. */
 export function useStatsSubscription() {
   useEffect(() => {
-    // A new subscription replaces the old one in Rust (StrictMode mounts effects twice in dev).
-    let active = true;
-    subscribeStats((samples) => {
-      if (active) statsStore.push(samples);
-    }).catch(toastError);
-    return () => {
-      active = false;
-    };
+    // No active gate: under StrictMode either invoke may win in Rust, and push ignores stale samples.
+    subscribeStats((samples) => statsStore.push(samples)).catch(toastError);
   }, []);
 }
 

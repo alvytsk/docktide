@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type PointerEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from "react";
 import { useChartCursor } from "./chart-cursor";
 import { growMax, nearestIndex, niceScale, timeTicks, visibleMax } from "./chart-scale";
 
@@ -64,6 +64,9 @@ export function TimeSeriesChart({
   const time = useChartCursor((s) => s.time);
   const setTime = useChartCursor((s) => s.setTime);
   const index = time !== null && time >= start && time <= end ? nearestIndex(times, time) : -1;
+
+  // Clear a stale crosshair when leaving the route.
+  useEffect(() => () => setTime(null), [setTime]);
 
   useLayoutEffect(() => {
     const observer = new ResizeObserver(([entry]) => setWidth(entry!.contentRect.width));
