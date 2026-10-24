@@ -1,5 +1,12 @@
 import { expect, it } from "vite-plus/test";
-import { chartColumns, growMax, nearestIndex, niceScale, timeTicks } from "./chart-scale";
+import {
+  chartColumns,
+  growMax,
+  nearestIndex,
+  niceScale,
+  timeTicks,
+  visibleMax,
+} from "./chart-scale";
 import type { StatsPoint } from "./stats-store";
 
 it("picks a nice scale", () => {
@@ -86,4 +93,21 @@ it("chart columns put a null point at each break", () => {
   expect(times).toEqual([0, 1000, 3000, 5000]);
   expect(values).toEqual([[1, 2, null, 3]]);
   expect(chartColumns([point(0, 1, true)], [cpu]).times).toEqual([0]);
+});
+
+it("takes the maximum only inside the window", () => {
+  const times = [0, 1000, 2000, 3000];
+  expect(
+    visibleMax(
+      times,
+      [
+        [50, 3, null, 9],
+        [1, 7, 2, Infinity],
+      ],
+      1000,
+      2000,
+    ),
+  ).toBe(7);
+  expect(visibleMax(times, [[null, null, null, null]], 0, 3000)).toBe(0);
+  expect(visibleMax([], [[]], 0, 3000)).toBe(0);
 });

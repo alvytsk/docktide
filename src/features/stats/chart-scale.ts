@@ -85,3 +85,21 @@ export function chartColumns(
   });
   return { times, values };
 }
+
+/** Largest finite value at a time inside [start, end] across all columns; 0 when there is none. */
+export function visibleMax(
+  times: readonly number[],
+  columns: readonly (readonly (number | null)[])[],
+  start: number,
+  end: number,
+): number {
+  let max = 0;
+  times.forEach((t, i) => {
+    if (t < start || t > end) return;
+    for (const column of columns) {
+      const v = column[i] ?? 0;
+      if (v > max && Number.isFinite(v)) max = v;
+    }
+  });
+  return max;
+}
