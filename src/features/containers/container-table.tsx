@@ -50,7 +50,7 @@ function Columns() {
     <TableHeader>
       <TableRow>
         <TableHead>Name</TableHead>
-        <TableHead>Image</TableHead>
+        <TableHead className="w-full">Image</TableHead>
         <TableHead>State</TableHead>
         <TableHead>Status</TableHead>
         <TableHead className="text-right">CPU</TableHead>
@@ -81,7 +81,7 @@ export function ContainerTable({ containers }: { containers?: ContainerSummary[]
                   </Link>
                   <div className="font-mono text-xs text-muted-foreground">{c.id.slice(0, 12)}</div>
                 </TableCell>
-                <TableCell className="max-w-40 truncate font-mono text-xs" title={c.image}>
+                <TableCell className="w-full max-w-0 truncate font-mono text-xs" title={c.image}>
                   {c.image}
                 </TableCell>
                 <TableCell>
@@ -103,8 +103,8 @@ export function ContainerTable({ containers }: { containers?: ContainerSummary[]
             ))
           : [0, 1, 2, 3].map((row) => (
               <TableRow key={row}>
-                {[32, 40, 20, 28, 12, 12, 24, 16].map((width) => (
-                  <TableCell key={width}>
+                {[32, 40, 20, 28, 12, 12, 24, 16].map((width, i) => (
+                  <TableCell key={i}>
                     <Skeleton className="h-4" style={{ width: `${width * 4}px` }} />
                   </TableCell>
                 ))}
