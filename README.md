@@ -2,15 +2,15 @@
 
 A modern, lightweight, Linux-first Docker manager with integrated real-time monitoring.
 
-> **Status: pre-alpha.** Milestones M0 (foundation) and M1 (live updates, details,
-> logs) are complete. Expect rough edges.
+> **Status: pre-alpha.** Milestones M0 (foundation), M1 (live updates, details,
+> logs), and M2 (monitoring) are complete. Expect rough edges.
 
 ## Features
 
 - Connection status for the local Docker Engine: Engine and API version, endpoint,
   and a plain explanation when Docker is unreachable or the socket is not accessible.
 - Container list (running and stopped) with name, image, state, status, and ports,
-  filterable by text and state.
+  filterable by text and state, plus live CPU and memory columns.
 - Start, stop, and restart, from the list or a container's page.
 - Live updates: containers started, stopped, created, or removed with the `docker`
   CLI or anything else appear within about a second. Docktide notices when Docker
@@ -22,9 +22,12 @@ A modern, lightweight, Linux-first Docker manager with integrated real-time moni
   Colours are shown, stderr is marked, and TTY containers are readable. Filter,
   timestamps, wrap, clear, and copy. Logs resume without duplicates after a restart
   or reconnect. The view keeps the latest 10,000 lines.
+- Stats: a tab with four live charts (CPU, memory, network, block I/O) and the
+  last 10 minutes of history, kept while Docktide is open. Values match
+  `docker stats`.
 - Back and forward with Alt+←/→ or the mouse side buttons.
 
-See the [M1 specification](docs/specifications/m1-live-details-logs.md), the
+See the [M2 specification](docs/specifications/m2-monitoring.md), the [M1 specification](docs/specifications/m1-live-details-logs.md), the
 [M0 specification](docs/specifications/m0-foundation.md), and the
 [roadmap](docs/architecture/overview.md#10-roadmap-tentative).
 
@@ -97,7 +100,8 @@ They only touch containers and volumes they create themselves (label
 it is not present.
 
 Tests against a fake Engine (`crates/docktide-core/tests/failures.rs`) cover
-connection failures, the events supervisor, and log stream cleanup without Docker.
+connection failures, the events supervisor, log stream cleanup, and the stats
+supervisor without Docker.
 
 The TypeScript types in `src/bindings/` are generated from the Rust types. A test
 fails when they are stale; regenerate them with:

@@ -1,6 +1,6 @@
 # Docktide architecture overview
 
-Status: **Accepted** (living document) · Last updated: 2026-10-22
+Status: **Accepted** (living document) · Last updated: 2026-10-24
 
 This document describes how Docktide is structured and why. Individual decisions
 are recorded as ADRs in [`decisions/`](decisions/). Feature-level behaviour lives
@@ -46,20 +46,20 @@ only call the explicitly registered Tauri commands.
 
 Owns everything that talks to Docker and every rule about Docker data.
 
-| Module       | Responsibility                                                                  | Milestone |
-| ------------ | ------------------------------------------------------------------------------- | --------- |
-| `endpoint`   | Resolve which daemon to talk to (`DOCKER_HOST`, contexts, rootless fallback)    | M0        |
-| `connection` | Build the Bollard client, ping, negotiate API version, report connection status | M0        |
-| `error`      | Typed `DockerError` with stable, UI-relevant kinds; classification of failures  | M0        |
-| `system`     | Engine info and version                                                         | M0        |
-| `containers` | List, map to domain types, lifecycle operations                                 | M0        |
-| `streams`    | Registry of running producers and their cancellation tokens                     | M1        |
-| `events`     | Supervised events stream, relevance filter, coalesced invalidation hints        | M1        |
-| `inspect`    | Container details from `inspect`, plus the raw JSON                             | M1        |
-| `logs`       | Log streaming: line assembly, escape filtering, paced batches, resume           | M1        |
-| `stats`      | Metrics sampling, bounded history buffers                                       | later     |
-| `exec`       | Interactive exec sessions                                                       | later     |
-| `compose`    | Project discovery from labels; CLI orchestration with fixed argv                | later     |
+| Module       | Responsibility                                                                                      | Milestone |
+| ------------ | --------------------------------------------------------------------------------------------------- | --------- |
+| `endpoint`   | Resolve which daemon to talk to (`DOCKER_HOST`, contexts, rootless fallback)                        | M0        |
+| `connection` | Build the Bollard client, ping, negotiate API version, report connection status                     | M0        |
+| `error`      | Typed `DockerError` with stable, UI-relevant kinds; classification of failures                      | M0        |
+| `system`     | Engine info and version                                                                             | M0        |
+| `containers` | List, map to domain types, lifecycle operations                                                     | M0        |
+| `streams`    | Registry of running producers and their cancellation tokens                                         | M1        |
+| `events`     | Supervised events stream, relevance filter, coalesced invalidation hints                            | M1        |
+| `inspect`    | Container details from `inspect`, plus the raw JSON                                                 | M1        |
+| `logs`       | Log streaming: line assembly, escape filtering, paced batches, resume                               | M1        |
+| `stats`      | One stats stream per running container; CLI-equivalent CPU, memory, and rates; one batch per second | M2        |
+| `exec`       | Interactive exec sessions                                                                           | later     |
+| `compose`    | Project discovery from labels; CLI orchestration with fixed argv                                    | later     |
 
 Dependencies: `bollard`, `tokio`, `tokio-util`, `serde`, `thiserror`, `tracing`, `futures-util`.
 It must compile and test without a display server, WebKitGTK, or Tauri.
@@ -93,6 +93,7 @@ src/
 │   ├── containers/      # list page, filter, state badge, lifecycle actions
 │   ├── container-details/ # details page, Overview and Inspect tabs, display helpers
 │   ├── logs/            # Logs tab, ANSI parser, log buffer, stream session
+│   ├── stats/           # stats store (10 min history), Stats tab, canvas charts
 │   └── live-updates/    # events subscription and hint → query invalidation
 ├── lib/
 │   ├── ipc.ts           # typed wrappers around invoke(); the only place invoke() is called
@@ -103,21 +104,22 @@ src/
 ```
 
 Routes are code-based (ADR 0002 D1): `/containers`, `/containers/$id/overview`,
-`/containers/$id/logs`, `/containers/$id/inspect`. Pages load data through
+`/containers/$id/stats`, `/containers/$id/logs`, `/containers/$id/inspect`. Pages load data through
 TanStack Query, not route loaders.
 
 ## 4. State ownership
 
 There is exactly one authority for each piece of state.
 
-| State                                   | Authority                                                              | Cached / displayed by                                        |
-| --------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------ |
-| Containers, images, volumes, networks   | Docker Engine                                                          | TanStack Query (frontend), no Rust cache                     |
-| Connection status, resolved endpoint    | `docktide-core`                                                        | TanStack Query                                               |
-| Log lines in view                       | Docker Engine (the log file)                                           | the logs session in `features/logs` (stream data, not Query) |
-| Metrics history (later)                 | `docktide-core` ring buffers (derived data that only Rust can produce) | TanStack Query / channel subscribers                         |
-| Filter text, last used tab, preferences | Zustand                                                                | n/a                                                          |
-| Window geometry (later)                 | Tauri window-state plugin                                              | n/a                                                          |
+| State                                   | Authority                                         | Cached / displayed by                                        |
+| --------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------ |
+| Containers, images, volumes, networks   | Docker Engine                                     | TanStack Query (frontend), no Rust cache                     |
+| Connection status, resolved endpoint    | `docktide-core`                                   | TanStack Query                                               |
+| Log lines in view                       | Docker Engine (the log file)                      | the logs session in `features/logs` (stream data, not Query) |
+| Metrics: derived values                 | `docktide-core` (CLI formulas, per sample)        | n/a                                                          |
+| Metrics history (10 min)                | the stats store in `features/stats` (ADR 0003 D3) | `useSyncExternalStore`, not Query                            |
+| Filter text, last used tab, preferences | Zustand                                           | n/a                                                          |
+| Window geometry (later)                 | Tauri window-state plugin                         | n/a                                                          |
 
 Consequences:
 
@@ -126,7 +128,7 @@ Consequences:
   frontend refetches through TanStack Query (ADR 0002 D7). A Rust-side reconciled
   store is added only if refetch-on-hint proves too expensive.
 - Zustand never holds server data. A container list in a Zustand store is a bug.
-- Stream data (log lines) lives in plain objects owned by the feature, outside
+- Stream data (log lines, stats samples) lives in plain objects owned by the feature, outside
   TanStack Query and Zustand, and is mutated in place with a version counter.
 
 ## 5. IPC contract
@@ -135,7 +137,8 @@ Consequences:
 - **Streams:** `tauri::ipc::Channel<T>` per subscription, not global events.
   Rust owns rate limiting and coalescing before data crosses the bridge.
   `subscribe_live_updates` (one per app; a new call replaces the old) and
-  `open_logs` / `close_logs` (one per log view, returning a subscription id).
+  `open_logs` / `close_logs` (one per log view, returning a subscription id), and
+  `subscribe_stats` (one per app; a new call replaces the old).
 - **Naming:** commands are `snake_case`. JSON fields are `camelCase`
   (`#[serde(rename_all = "camelCase")]`).
 - **Errors:** a stable, serializable shape:
@@ -229,7 +232,7 @@ This matters from the Images milestone onward and is called out in that spec.
 
 ## 7. Streams and concurrency
 
-As built in M1; stats and exec follow the same rules.
+As built in M1 and M2; exec follows the same rules.
 
 - Every long-running task gets a `tokio_util::sync::CancellationToken` and is
   held in the `StreamRegistry` in `DockerService`, keyed by subscription id.
@@ -240,11 +243,14 @@ As built in M1; stats and exec follow the same rules.
 - Rust paces what crosses the bridge, because a `Channel` send never blocks:
   - events: relevant ids coalesced for 250 ms, at most one hint per window;
   - logs: batches of up to 500 lines, at most one per 50 ms; a 10,000-line
-    queue drops the oldest and reports a `gap`.
+    queue drops the oldest and reports a `gap`;
+  - stats: one batch per second for all containers; an empty tick sends nothing.
 - The frontend renders stream data at most once per animation frame.
-- Log subscriptions are per view and not shared. Producers whose output is the
-  same for every subscriber (stats, later) are keyed, for example
-  `stats:<container-id>`, so a second subscriber shares the existing producer.
+- Log subscriptions are per view and not shared. Stats are one subscription per
+  app: the supervisor holds one stream per running or paused container, follows
+  lifecycle through the events supervisor's in-process fan-out, and reopens
+  streams after a client change. Producers whose output is the same for every
+  subscriber could be keyed instead (for example `stats:<container-id>`).
 
 ## 8. Security model
 
@@ -282,7 +288,7 @@ remove containers they did not create. The development host runs real workloads.
 | --------- | -------------------------------------------------------------------------- |
 | M0        | Foundation: shell, connection, container list, start/stop/restart (done)   |
 | M1        | Live updates via events stream, container details and inspect, logs (done) |
-| M2        | Monitoring: stats streams, bounded history, charts                         |
+| M2        | Monitoring: stats streams, bounded history, charts (done)                  |
 | M3        | Compose: project discovery, grouping, service lifecycle                    |
 | M4        | Images: list, inspect, pull, remove, create container                      |
 | M5        | Volumes and networks                                                       |

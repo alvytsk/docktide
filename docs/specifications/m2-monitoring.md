@@ -361,4 +361,63 @@ Implementation calls (not separately approved):
 
 ## 11. Verification
 
-Not run yet.
+Run on 2026-10-24 on the dev host: Ubuntu 26.04.1, kernel 7.0, niri (Wayland),
+Docker Engine 29.9.2 (rootful, default socket, cgroup v2), Rust 1.99.1, Node
+24.19, pnpm 11.28. The GUI could not be seen or driven from the implementation
+session, and the app was not launched; checks that need the running app are
+marked **Unverified** unless the user did them or a test covers them. Only
+containers labelled `io.docktide.test=true` were used by the tests.
+
+| ID    | Result                                                                      | Evidence                                                                                                                                                                                                                                                                                                                                                 |
+| ----- | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-1  | Verified by the user (manual, 2026-10-24)                                   | CPU and memory values appeared in the running app's list.                                                                                                                                                                                                                                                                                                |
+| AC-2  | Partly verified; the 5 % comparison is **Unverified, pending manual check** | Formulas: `cpu_percent_matches_the_cli`, `zero_cpu_delta_is_zero`, `negative_cpu_delta_is_null`, `online_cpus_falls_back_to_percpu`, `cache_not_below_usage_keeps_usage`, and the other `stats::tests`. `stats_a_busy_loop_reports_cpu` (ignored, Docker) sees CPU above 50 % for a busy loop. No side-by-side with `docker stats --no-stream` was made. |
+| AC-3  | Verified by the user (list) and by tests (connection)                       | The user saw values appear and `—` after a stop. The connection closing on a stop: `stats_stop_closes_and_start_reopens` (Docker) and fake-Engine `a_die_event_closes_the_stream`; reopening on start: `a_start_event_replaces_an_open_stream`. The 2 s timing was not measured with `ss -x`.                                                            |
+| AC-4  | **Unverified, pending manual check**                                        | Needs the Stats tab. Covered in part by the store tests (`marks a break before streamStart even 1 s after the previous sample`, `marks a break when samples are more than 2.5 s apart`) and `stats_restart_starts_a_new_stream` (a restart yields `streamStart`).                                                                                        |
+| AC-5  | **Unverified, pending manual check**                                        | Not run with 20 containers; no Channel message count was taken and responsiveness was not judged. Batching is covered by `samples_arrive_batched_once_per_second` (one message per second, gap of at least 950 ms) and `a_burst_of_starts_opens_one_stream_per_container`.                                                                               |
+| AC-6  | **Unverified, pending manual check** (visual gap)                           | Reopening after a client change: `a_new_generation_relists`, `a_cut_stats_stream_is_reopened` (next sample has `streamStart`), `a_failed_list_is_retried`. The gap in the chart follows from the store's break rule (tests above). Not simulated in the app.                                                                                             |
+| AC-7  | **Unverified, pending manual check** (`ss -x` on a reload)                  | `cancelling_closes_every_stats_connection` and `a_closed_sink_closes_every_stats_connection` pass. The adapter cancels the stats stream with the others on page load and window destroy (the M1 mechanism, verified in M1 AC-11).                                                                                                                        |
+| AC-8  | **Unverified, pending manual check**                                        | No proxy request log was taken. By design there are no stats requests without running containers, and only one list per client generation.                                                                                                                                                                                                               |
+| AC-9  | Verified by the user (manual, 2026-10-24)                                   | The list does not clip at 1,024 px, after the Image column was given a 25 % share (see Deviations).                                                                                                                                                                                                                                                      |
+| AC-10 | **Unverified**                                                              | The M1 checklist was not re-run by hand. The M1 integration and fake-Engine tests all still pass (gate below).                                                                                                                                                                                                                                           |
+| AC-11 | Verified                                                                    | `cargo fmt --all --check` and `cargo clippy --workspace --all-targets -- -D warnings` clean. `cargo test --workspace`: 129 unit + 31 fake-Engine tests passed, 13 ignored. `cargo test --workspace -- --ignored`: 13 passed. `pnpm check`: 84 files formatted, 0 warnings or errors. `pnpm test`: 12 files, 90 tests passed. `pnpm typecheck` passes.    |
+| AC-12 | Verified, pending review                                                    | README, overview §3 to §5, §7 and §10, and ADR 0003 describe monitoring as built.                                                                                                                                                                                                                                                                        |
+
+Deviations from the plan made during implementation:
+
+- The paused-time batching unit test was replaced by the fake-Engine test
+  `samples_arrive_batched_once_per_second`, which checks real receive times.
+- Docker integration tests wait up to 5 s, not 3 s: a stream's first sample
+  comes about 1 s after opening and has no CPU, CPU needs the second sample, and
+  batching adds up to 1 s.
+- Per-stream errors go through `DockerService::failed`, not `stream_failure`.
+  `stream_failure` does not drop the client, so a cut stream would be treated as
+  connection-level and never reopened.
+- A failed container list (not connection-level) is retried with backoff,
+  instead of waiting for the next client generation, so stats cannot stay dark
+  while connected.
+- Byte axes use decimal nice numbers within each 1024ⁿ unit (steps such as 12.5
+  or 25 MiB) and add headroom only above the minimum maximum, so a CPU at 100 %
+  keeps a 0 to 100 axis.
+- `timeTicks` needs 80 px between labels, so narrow charts show 5 or 10 minute
+  ticks instead of 2.
+- The list's Image column has a 25 % width and truncates, after the first
+  layout (taking all leftover width) was too wide in the running app.
+- The memory tooltip is attached to a non-focusable element; keyboard users do
+  not get it.
+
+Observations, not fixed in M2:
+
+- Charts show a flat limit line across gaps, and the current-values row can read
+  "— / Unlimited (—)" when nothing is known.
+- A crosshair stays on a chart if the route changes while the pointer is over it,
+  until the next pointer move.
+- A change of theme or screen scale reaches the canvas at the next one-second
+  tick, not at once.
+- A cut stats connection logs at `error` level once per container (from the
+  shared error classifier), although the spec says debug.
+- An unparseable sample time or a `NaN` value is not rejected by the store.
+- The Stats tab has no component test for its state notes, and the chart's
+  canvas was checked only in headless Chrome, not in WebKitGTK.
+- Leftover labelled containers `docktide-m2-busy` and `docktide-m2-sleep`
+  (exited) were on the host from earlier work; they were not removed.
