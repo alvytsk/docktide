@@ -103,9 +103,10 @@ src/
 └── stores/              # Zustand stores: UI preferences and transient UI state only
 ```
 
-Routes are code-based (ADR 0002 D1): `/containers`, `/containers/$id/overview`,
-`/containers/$id/stats`, `/containers/$id/logs`, `/containers/$id/inspect`. Pages load data through
-TanStack Query, not route loaders.
+Routes are code-based (ADR 0002 D1): `/containers`,
+`/containers/$id/overview`, `/containers/$id/stats`, `/containers/$id/logs`,
+`/containers/$id/inspect`. Pages load data through TanStack Query, not route
+loaders.
 
 ## 4. State ownership
 
@@ -249,8 +250,7 @@ As built in M1 and M2; exec follows the same rules.
 - Log subscriptions are per view and not shared. Stats are one subscription per
   app: the supervisor holds one stream per running or paused container, follows
   lifecycle through the events supervisor's in-process fan-out, and reopens
-  streams after a client change. Producers whose output is the same for every
-  subscriber could be keyed instead (for example `stats:<container-id>`).
+  streams after a client change.
 
 ## 8. Security model
 

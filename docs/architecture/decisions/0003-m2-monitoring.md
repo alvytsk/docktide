@@ -18,7 +18,7 @@ Facts established while deciding and implementing (Engine 29.9.2, cgroup v2):
 | Area                                  | Finding                                                                                                                                                                                                                                                      |
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `GET /containers/{id}/stats?stream=1` | One sample per second; the stream never ends by itself. The first sample has no `precpu_stats.system_cpu_usage`. After a stop it keeps sending zero samples (`read: "0001-01-01T00:00:00Z"`). A `docker restart` continues the same stream with no boundary. |
-| Docker CLI                            | CPU % is `cpuDelta / systemDelta × onlineCpus × 100`; memory excludes inactive file cache (`calculateMemUsageUnixNoCache`). Matching these makes values equal to `docker stats`.                                                                             |
+| Docker CLI                            | CPU % is `cpuDelta / systemDelta × onlineCpus × 100`; memory excludes inactive file cache (`calculateMemUsageUnixNoCache`). Using the same formulas should give the same values as `docker stats`.                                                           |
 | Tauri `Channel`                       | A send never blocks, so Rust must pace what it sends (ADR 0002).                                                                                                                                                                                             |
 
 ## Decisions
@@ -56,8 +56,8 @@ configurable.
 
 ### D5: CPU on the `docker stats` scale
 
-100 % is one core, so a busy two-core container reads 200 % and values match
-the CLI.
+100 % is one core, so a busy two-core container reads 200 % and values use
+the CLI's scale.
 
 ### Implementation calls (not separately approved)
 

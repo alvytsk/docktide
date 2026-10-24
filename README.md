@@ -23,11 +23,12 @@ A modern, lightweight, Linux-first Docker manager with integrated real-time moni
   timestamps, wrap, clear, and copy. Logs resume without duplicates after a restart
   or reconnect. The view keeps the latest 10,000 lines.
 - Stats: a tab with four live charts (CPU, memory, network, block I/O) and the
-  last 10 minutes of history, kept while Docktide is open. Values match
-  `docker stats`.
+  last 10 minutes of history, kept while Docktide is open. Values use the
+  same formulas as `docker stats`.
 - Back and forward with Alt+←/→ or the mouse side buttons.
 
-See the [M2 specification](docs/specifications/m2-monitoring.md), the [M1 specification](docs/specifications/m1-live-details-logs.md), the
+See the [M2 specification](docs/specifications/m2-monitoring.md), the
+[M1 specification](docs/specifications/m1-live-details-logs.md), the
 [M0 specification](docs/specifications/m0-foundation.md), and the
 [roadmap](docs/architecture/overview.md#10-roadmap-tentative).
 
