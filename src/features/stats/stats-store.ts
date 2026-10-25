@@ -54,6 +54,18 @@ export class StatsStore {
     return last && this.now - last.t <= CURRENT_MS ? last : null;
   }
 
+  /** Sums the current samples' values; `null` when no container has one. */
+  totals(ids: string[]): { cpu: number | null; memory: number | null } {
+    let cpu: number | null = null;
+    let memory: number | null = null;
+    for (const id of ids) {
+      const c = this.current(id);
+      if (c?.cpuPercent != null) cpu = (cpu ?? 0) + c.cpuPercent;
+      if (c?.memoryUsage != null) memory = (memory ?? 0) + c.memoryUsage;
+    }
+    return { cpu, memory };
+  }
+
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
     return () => {

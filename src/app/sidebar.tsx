@@ -1,19 +1,10 @@
-import {
-  Activity,
-  Box,
-  HardDrive,
-  Layers,
-  Network,
-  SquareStack,
-  type LucideIcon,
-} from "lucide-react";
+import { Activity, Box, HardDrive, Layers, Network, type LucideIcon } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ConnectionIndicator } from "@/features/connection/connection-indicator";
 
 const UPCOMING: [string, LucideIcon][] = [
   ["Images", Layers],
-  ["Compose", SquareStack],
   ["Volumes", HardDrive],
   ["Networks", Network],
   ["Monitoring", Activity],
