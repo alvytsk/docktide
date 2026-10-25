@@ -283,6 +283,9 @@ Each slice ends with a working, checked state. Stop for review after S2.
 - Containers of a project that was renamed or recreated under a different
   project name show as a different project.
 - Collapsed groups reset when Docktide restarts.
+- A container whose first line has an empty timestamp sorts by another
+  container's last key until it has a timestamp of its own, so that line can
+  land after its own later lines.
 
 ## 10. Decisions
 
@@ -316,3 +319,69 @@ Implementation calls (not separately approved):
   instant and loses nothing.
 - Service colours come from the existing ANSI theme colours, without red.
 - Collapse state is session-only, matching the other UI stores.
+
+## 11. Verification
+
+Run on 2026-10-25 on the dev host: Ubuntu 26.04.1, kernel 7.0.0-38-generic,
+niri (Wayland), Docker Engine 29.9.2 (rootful, default socket, cgroup v2), Rust
+1.99.1, Node 24.19.0, pnpm 11.28.6. The GUI could not be seen or driven from the
+implementation session, and the app was not launched; checks that need the
+running app are marked **Unverified, pending manual check** unless the user did
+them or a test covers them. Only containers labelled `io.docktide.test=true`
+were used by the tests.
+
+| ID    | Result                                                                         | Evidence                                                                                                                                                                                                                                                                                                                                                                  |
+| ----- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-1  | Verified by the user (manual, 2026-10-25)                                      | The user confirmed the grouped list looked right in the running app at the S2 stop ("looks good").                                                                                                                                                                                                                                                                        |
+| AC-2  | Verified by the user (manual, 2026-10-25)                                      | Same S2 check; standalone containers follow the groups. Grouping tests: `projects first, sorted case-insensitively; standalone after in input order`.                                                                                                                                                                                                                     |
+| AC-3  | Verified by the user (manual, 2026-10-25)                                      | Same S2 check. Appearance and removal follow M1's invalidation-on-event path, unchanged.                                                                                                                                                                                                                                                                                  |
+| AC-4  | Verified by the user (manual, 2026-10-25); unit tests                          | `counts cover the whole project under a filter`, `a filter matching the project name shows the whole group`, `a group with no matching members is left out`, `text matches the compose project name`, `running includes paused and restarting; stopped is everything else`, `text and state filters combine`. No component test for the collapse toggle (see Deviations). |
+| AC-5  | **Unverified, pending manual check**                                           | Not run in the app. Merge: `interleaves sources by instant despite trimmed fractions`, `a late tail merges into place`, `equal timestamps keep arrival order`; session: `opens one stream per member with the tail, then resumes with after`; tags: `plain service tag unless the service is scaled`. `list_reports_compose_labels` (Docker) covers membership.           |
+| AC-6  | **Unverified, pending manual check**                                           | `toggleService hides and shows without reopening`, `hidden sources are filtered, with their gaps`. The chip row was not clicked.                                                                                                                                                                                                                                          |
+| AC-7  | **Unverified, pending manual check**                                           | `an ended container reopens once per newer running result`, `an exited result never reopens`, `resume point is the newest timestamp per source, not the last arrived, and survives clear`. No `docker compose restart` was run against the page.                                                                                                                          |
+| AC-8  | **Unverified, pending manual check**                                           | `a new member opens with the tail`, `plain service tag unless the service is scaled`. No `--scale worker=2` was run.                                                                                                                                                                                                                                                      |
+| AC-9  | **Unverified, pending manual check**                                           | `projectSession keeps one session for the most recent project`. Leaving and returning was not tried in the app.                                                                                                                                                                                                                                                           |
+| AC-10 | **Unverified, pending manual check** (`ss -x` on leave and reload)             | `a stream that resolves after close is closed at once`, `a member that leaves is closed; its lines and source info stay`, and the M1 fake-Engine close tests, which still pass. The page uses the same `open_logs`/`close_logs` mechanism as the Logs tab (M1 AC-11).                                                                                                     |
+| AC-11 | **Unverified, pending manual check**                                           | `ended calls onEnded; a connection-level error calls onConnectionLost and marks that stream disconnected`, `another error marks only that stream`. Not simulated in the app. See the AC-11 reading under Deviations.                                                                                                                                                      |
+| AC-12 | **Unverified, pending manual check** (60 s load, `ss -x`, scroll while paused) | `capacity trims the oldest across all sources` and `drops the oldest beyond capacity and remembers that it did`. No load test was run and responsiveness was not judged.                                                                                                                                                                                                  |
+| AC-13 | **Unverified, pending manual check**                                           | The M2 checklist was not re-run by hand. All M2 tests still pass (gate below). Manual items outstanding: the container Logs tab unchanged apart from timestamp ordering (Task 6 refactor), and M2 AC-2, AC-4 to AC-8.                                                                                                                                                     |
+| AC-14 | Verified                                                                       | `cargo fmt --all --check` and `cargo clippy --workspace --all-targets -- -D warnings` clean. `cargo test --workspace`: 136 unit + 31 fake-Engine tests passed, 14 ignored. `cargo test --workspace -- --ignored`: 14 passed. `pnpm check`: 100 files formatted, 0 warnings or errors in 78. `pnpm test`: 16 files, 126 tests passed. `pnpm typecheck` passes.             |
+| AC-15 | Verified, pending review                                                       | README (status, Features, spec link), overview (§4, §5, §10), and ADR 0004 describe Compose as built.                                                                                                                                                                                                                                                                     |
+
+Deviations from the spec and plan made during implementation:
+
+- The merge buffer orders lines by timestamp, and the container Logs tab uses
+  the same buffer, so its stdout and stderr lines now sort by timestamp rather
+  than arrival (Task 4). Lines with equal timestamps keep arrival order.
+- The header reads "1 service" for one service, not "1 services".
+- Replica tags count distinct replica numbers, not containers, so the old and
+  new `api` during a force-recreate keep the plain `api` tag and old lines are
+  not retagged (Task 5 review).
+- The project page's link reads "Back to containers", as the existing
+  not-found pages do, rather than "a Containers link".
+- There are no component or hook tests for the project logs page or the
+  grouped table: the repo has no DOM test environment and adding one needs a
+  dependency. Session, buffer, tag, and grouping logic is unit tested.
+- AC-11 reading: on a disconnect the connection panel replaces the view, as on
+  M1's Logs tab. The "Docker is not reachable." footer covers the window before
+  the connection query flips.
+- `LogView` shows "N of M lines" whenever the filter is non-empty or any
+  service is hidden; N counts lines after both.
+- The session does not use `compareMembers`; its service list is sorted by name.
+
+Observations, not fixed in M3:
+
+- A mid-buffer insert while the view is paused may move the scroll position;
+  to check in the AC-12 pass.
+- A late batch that sorts mid-buffer copies the whole buffer; merging only the
+  tail is the upgrade if AC-12 janks.
+- The first visit can flash "No log output yet" for a frame before "Opening
+  logs…".
+- Removed containers keep the tag from their last sync (a service later scaled
+  shows its old plain tag on those lines).
+- `footerState` and the footer priority logic are pure but untested; `Footer`
+  and `RetryButton` live in `logs-tab.tsx` rather than `log-view.tsx`.
+- Retry or a tail change can cause one extra reopen when the hook re-syncs the
+  same `fetchedAt`.
+- Service names compare case-sensitively while project names are lowercased;
+  Compose allows only lowercase project names, so this is moot in practice.

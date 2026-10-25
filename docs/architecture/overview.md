@@ -117,6 +117,8 @@ There is exactly one authority for each piece of state.
 | Containers, images, volumes, networks   | Docker Engine                                     | TanStack Query (frontend), no Rust cache                     |
 | Connection status, resolved endpoint    | `docktide-core`                                   | TanStack Query                                               |
 | Log lines in view                       | Docker Engine (the log file)                      | the logs session in `features/logs` (stream data, not Query) |
+| Compose membership                      | Engine labels, read in `docktide-core`            | `ContainerSummary.compose` in the containers query           |
+| Project log lines in view               | Docker Engine (the log files)                     | the project session in `features/project-logs` (ADR 0004 D2) |
 | Metrics: derived values                 | `docktide-core` (CLI formulas, per sample)        | n/a                                                          |
 | Metrics history (10 min)                | the stats store in `features/stats` (ADR 0003 D3) | `useSyncExternalStore`, not Query                            |
 | Filter text, last used tab, preferences | Zustand                                           | n/a                                                          |
@@ -140,6 +142,9 @@ Consequences:
   `subscribe_live_updates` (one per app; a new call replaces the old) and
   `open_logs` / `close_logs` (one per log view, returning a subscription id), and
   `subscribe_stats` (one per app; a new call replaces the old).
+  M3 adds no commands: the project logs page opens one `open_logs` stream per
+  container of the project, and `ContainerSummary` gains `compose`
+  (`ComposeInfo | null`: project, service, replica number, one-off).
 - **Naming:** commands are `snake_case`. JSON fields are `camelCase`
   (`#[serde(rename_all = "camelCase")]`).
 - **Errors:** a stable, serializable shape:
@@ -289,7 +294,8 @@ remove containers they did not create. The development host runs real workloads.
 | M0        | Foundation: shell, connection, container list, start/stop/restart (done)   |
 | M1        | Live updates via events stream, container details and inspect, logs (done) |
 | M2        | Monitoring: stats streams, bounded history, charts (done)                  |
-| M3        | Compose: project discovery, grouping, service lifecycle                    |
+| M3        | Compose: grouped container list, merged project logs (done)                |
+| later     | Compose project lifecycle (start, stop, restart a project; ADR 0004 D3)    |
 | M4        | Images: list, inspect, pull, remove, create container                      |
 | M5        | Volumes and networks                                                       |
 | M6        | Interactive exec terminal (xterm.js)                                       |
