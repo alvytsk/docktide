@@ -140,7 +140,7 @@ export type LogViewProps = {
   tail: LogTail;
   onTail: (tail: LogTail) => void;
   onClear: () => void;
-  hidden?: (source: string) => boolean;
+  hidden?: ((source: string) => boolean) | undefined;
   /** Rendered before the text of each line, after the timestamp. */
   renderTag?: (source: string) => ReactNode;
   /** Prefix for copied lines, e.g. `api | `. */

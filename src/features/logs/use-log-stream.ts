@@ -107,7 +107,7 @@ function sessionFor(id: string): LogSession {
 }
 
 /** Re-renders at most once per animation frame, however many events arrive. */
-function useFrameRender() {
+export function useFrameRender() {
   const [, setFrame] = useState(0);
   const pending = useRef(false);
   return useCallback(() => {

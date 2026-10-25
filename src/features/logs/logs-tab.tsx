@@ -5,7 +5,7 @@ import { useLoadedContainer } from "@/features/container-details/use-container";
 import { LogView } from "./log-view";
 import { useLogStream, type StreamStatus } from "./use-log-stream";
 
-function Footer({ children }: { children: ReactNode }) {
+export function Footer({ children }: { children: ReactNode }) {
   return (
     <div
       aria-live="polite"

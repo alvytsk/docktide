@@ -1,7 +1,8 @@
 import { Activity, Box, HardDrive, Layers, Network, type LucideIcon } from "lucide-react";
-import { Link } from "@tanstack/react-router";
+import { Link, useLocation } from "@tanstack/react-router";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ConnectionIndicator } from "@/features/connection/connection-indicator";
+import { cn } from "@/lib/utils";
 
 const UPCOMING: [string, LucideIcon][] = [
   ["Images", Layers],
@@ -13,17 +14,21 @@ const UPCOMING: [string, LucideIcon][] = [
 const itemClass = "flex w-full items-center gap-3 rounded-md px-3 py-1.5 text-sm outline-none";
 
 export function Sidebar() {
+  const { pathname } = useLocation();
+  // A project's logs belong to the container list too.
+  const containersActive = pathname.startsWith("/containers") || pathname.startsWith("/projects");
   return (
     <aside className="flex w-56 shrink-0 flex-col bg-sidebar text-sidebar-foreground">
       <div className="px-6 pt-6 pb-5 text-[1.05rem] font-semibold tracking-tight">Docktide</div>
       <nav aria-label="Main" className="flex flex-1 flex-col gap-0.5 px-3">
-        {/* Active, with aria-current="page", on every /containers route. */}
         <Link
           to="/containers"
-          className={`${itemClass} focus-visible:ring-2 focus-visible:ring-sidebar-ring`}
-          activeProps={{
-            className: "bg-sidebar-primary font-medium text-sidebar-primary-foreground",
-          }}
+          aria-current={containersActive ? "page" : undefined}
+          className={cn(
+            itemClass,
+            "focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+            containersActive && "bg-sidebar-primary font-medium text-sidebar-primary-foreground",
+          )}
         >
           <Box className="size-4" aria-hidden />
           Containers

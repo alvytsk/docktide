@@ -13,6 +13,7 @@ import { OverviewTab } from "@/features/container-details/overview-tab";
 import { LogsTab } from "@/features/logs/logs-tab";
 import { StatsTab } from "@/features/stats/stats-tab";
 import { ContainersPage } from "@/features/containers/containers-page";
+import { ProjectLogsPage } from "@/features/project-logs/project-logs-page";
 import { useDetailsTab, type DetailsTab } from "@/stores/details-tab";
 import { NotFound, Shell } from "./shell";
 
@@ -90,6 +91,12 @@ const inspectRoute = createRoute({
   onEnter: () => useDetailsTab.getState().setTab("inspect"),
 });
 
+const projectLogsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "projects/$project/logs",
+  component: ProjectLogsPage,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   containersRoute.addChildren([
@@ -102,6 +109,7 @@ const routeTree = rootRoute.addChildren([
       inspectRoute,
     ]),
   ]),
+  projectLogsRoute,
 ]);
 
 /** Hash history by default, since the app is served from bundled files. */

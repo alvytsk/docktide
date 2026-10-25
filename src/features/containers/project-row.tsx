@@ -1,6 +1,7 @@
+import { Link } from "@tanstack/react-router";
 import { ChevronRight, ScrollText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { TableCell, TableRow } from "@/components/ui/table";
 import { formatMemory, formatPercent } from "@/features/stats/format";
 import { useStatsTotals } from "@/features/stats/use-stats";
@@ -51,11 +52,16 @@ export function ProjectRow({ group, collapsed, onToggle }: Props) {
       <TableCell className="text-right tabular-nums">{formatMemory(memory)}</TableCell>
       <TableCell />
       <TableCell>
-        {/* Disabled until the project logs route exists (M3 Task 7). */}
-        <Button variant="outline" size="sm" disabled onClick={(event) => event.stopPropagation()}>
+        <Link
+          to="/projects/$project/logs"
+          params={{ project }}
+          className={buttonVariants({ variant: "outline", size: "sm" })}
+          // Navigates without also toggling the group.
+          onClick={(event) => event.stopPropagation()}
+        >
           <ScrollText />
           Logs
-        </Button>
+        </Link>
       </TableCell>
     </TableRow>
   );
