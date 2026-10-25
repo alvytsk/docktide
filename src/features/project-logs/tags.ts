@@ -3,13 +3,17 @@ import type { ContainerSummary } from "@/bindings/ContainerSummary";
 /**
  * A line's tag (spec M3 §5.2): the service, `service-N` while the service has
  * more than one replica, or the container name for a one-off container.
+ * Replicas are counted by number: `--force-recreate` briefly leaves an old and
+ * a new container with the same number.
  */
 export function tagFor(c: ContainerSummary, members: ContainerSummary[]): string {
   const compose = c.compose;
   if (!compose || compose.oneOff) return c.name;
-  const replicas = members.filter(
-    (m) => m.compose?.service === compose.service && !m.compose.oneOff,
-  ).length;
+  const replicas = new Set(
+    members
+      .filter((m) => m.compose?.service === compose.service && !m.compose.oneOff)
+      .map((m) => m.compose?.number ?? 1),
+  ).size;
   return replicas > 1 ? `${compose.service}-${compose.number ?? 1}` : compose.service;
 }
 
