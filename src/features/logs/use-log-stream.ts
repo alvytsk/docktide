@@ -56,7 +56,7 @@ class LogSession {
 
     this.openedFor = startedAt;
     update({ kind: "opening" });
-    openLogs(this.id, this.tail, buffer.lastTimestamp, (event) => {
+    openLogs(this.id, this.tail, buffer.resumePoint(""), (event) => {
       if (closed) return;
       switch (event.type) {
         case "lines":
