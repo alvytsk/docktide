@@ -8,7 +8,7 @@ export type ContainerFilter = { text: string; state: StateFilter };
 // The "Running" filter. "Stopped" is everything else.
 const ACTIVE = new Set<ContainerState>(["running", "paused", "restarting"]);
 
-/** Case-insensitive substring over name and image, or an id prefix. */
+/** Case-insensitive substring over name, image, and Compose project, or an id prefix. */
 export function matchesFilter(container: ContainerSummary, { text, state }: ContainerFilter) {
   if (state !== "all" && ACTIVE.has(container.state) !== (state === "running")) return false;
   const query = text.trim().toLowerCase();
@@ -16,6 +16,7 @@ export function matchesFilter(container: ContainerSummary, { text, state }: Cont
     query === "" ||
     container.name.toLowerCase().includes(query) ||
     container.image.toLowerCase().includes(query) ||
+    container.compose?.project.toLowerCase().includes(query) ||
     container.id.startsWith(query)
   );
 }
