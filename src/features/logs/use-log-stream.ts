@@ -56,7 +56,7 @@ class LogSession {
 
     this.openedFor = startedAt;
     update({ kind: "opening" });
-    openLogs(this.id, this.tail, buffer.lastTimestamp, (event) => {
+    openLogs(this.id, this.tail, buffer.resumePoint(""), (event) => {
       if (closed) return;
       switch (event.type) {
         case "lines":
@@ -107,7 +107,7 @@ function sessionFor(id: string): LogSession {
 }
 
 /** Re-renders at most once per animation frame, however many events arrive. */
-function useFrameRender() {
+export function useFrameRender() {
   const [, setFrame] = useState(0);
   const pending = useRef(false);
   return useCallback(() => {

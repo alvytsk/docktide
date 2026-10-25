@@ -16,3 +16,9 @@ export function useStatsSeries(id: string) {
   useSyncExternalStore(statsStore.subscribe, () => statsStore.version);
   return { points: statsStore.series(id), current: statsStore.current(id), now: statsStore.now };
 }
+
+/** Sums over several containers; re-renders and reads like `useStatsSeries`. */
+export function useStatsTotals(ids: string[]) {
+  useSyncExternalStore(statsStore.subscribe, () => statsStore.version);
+  return statsStore.totals(ids);
+}

@@ -11,6 +11,7 @@ const container = (patch: Partial<ContainerSummary>): ContainerSummary => ({
   status: "Up 3 hours",
   ports: [],
   createdAt: 0,
+  compose: null,
   ...patch,
 });
 
@@ -29,6 +30,14 @@ describe("matchesFilter", () => {
     // An id substring that is not a prefix does not match.
     expect(matchesFilter(container({}), filter({ text: "9c01" }))).toBe(false);
     expect(matchesFilter(container({}), filter({ text: "postgres" }))).toBe(false);
+  });
+
+  test("text matches the compose project name", () => {
+    const member = container({
+      compose: { project: "shop", service: "db", number: 1, oneOff: false },
+    });
+    expect(matchesFilter(member, filter({ text: "sho" }))).toBe(true);
+    expect(matchesFilter(member, filter({ text: "xyz" }))).toBe(false);
   });
 
   test("running includes paused and restarting; stopped is everything else", () => {

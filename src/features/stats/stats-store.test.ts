@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 import type { StatsSample } from "@/bindings/StatsSample";
-import { StatsStore } from "./stats-store";
+import { CURRENT_MS, StatsStore } from "./stats-store";
 
 const T0 = Date.parse("2026-01-01T00:00:00Z");
 
@@ -123,4 +123,16 @@ it("calls the default timers unbound", () => {
   } finally {
     vi.unstubAllGlobals();
   }
+});
+
+it("totals sum current values and are null when none has one", () => {
+  const store = new StatsStore();
+  store.push([
+    sample("a", 0, { cpuPercent: 10, memoryUsage: 100 }),
+    sample("b", 0, { cpuPercent: 2.5, memoryUsage: null }),
+  ]);
+  expect(store.totals(["a", "b"])).toEqual({ cpu: 12.5, memory: 100 });
+  expect(store.totals(["nope"])).toEqual({ cpu: null, memory: null });
+  store.tick(T0 + CURRENT_MS + 1);
+  expect(store.totals(["a", "b"])).toEqual({ cpu: null, memory: null });
 });

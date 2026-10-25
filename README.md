@@ -3,7 +3,7 @@
 A modern, lightweight, Linux-first Docker manager with integrated real-time monitoring.
 
 > **Status: pre-alpha.** Milestones M0 (foundation), M1 (live updates, details,
-> logs), and M2 (monitoring) are complete. Expect rough edges.
+> logs), M2 (monitoring), and M3 (Compose) are complete. Expect rough edges.
 
 ## Features
 
@@ -25,9 +25,15 @@ A modern, lightweight, Linux-first Docker manager with integrated real-time moni
 - Stats: a tab with four live charts (CPU, memory, network, block I/O) and the
   last 10 minutes of history, kept while Docktide is open. Values use the
   same formulas as `docker stats`.
+- Compose: containers started by `docker compose` appear as one group per
+  project, with running count, service count, and summed CPU and memory. Groups
+  collapse, and the filters also match the project name. A project's Logs page
+  merges every container's output in time order, with service tags, service
+  chips to hide and show services, and new containers picked up as they start.
 - Back and forward with Alt+←/→ or the mouse side buttons.
 
-See the [M2 specification](docs/specifications/m2-monitoring.md), the
+See the [M3 specification](docs/specifications/m3-compose.md), the
+[M2 specification](docs/specifications/m2-monitoring.md), the
 [M1 specification](docs/specifications/m1-live-details-logs.md), the
 [M0 specification](docs/specifications/m0-foundation.md), and the
 [roadmap](docs/architecture/overview.md#10-roadmap-tentative).

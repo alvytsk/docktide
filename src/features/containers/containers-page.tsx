@@ -8,7 +8,8 @@ import { ConnectionPanel } from "@/features/connection/connection-panel";
 import { useConnectionStatus } from "@/features/connection/use-connection-status";
 import { useContainerFilter } from "@/stores/container-filter";
 import { ContainerTable } from "./container-table";
-import { matchesFilter, type StateFilter } from "./list";
+import { groupContainers } from "./groups";
+import type { StateFilter } from "./list";
 import { useContainers } from "./use-containers";
 
 const STATE_FILTERS: { value: StateFilter; label: string }[] = [
@@ -29,17 +30,17 @@ function Notice({ title, children }: { title: string; children?: ReactNode }) {
 function ContainerList({ enabled }: { enabled: boolean }) {
   const { data, error, isError, isFetching, refetch } = useContainers(enabled);
   const filter = useContainerFilter();
-  const shown = data?.filter((c) => matchesFilter(c, filter));
+  const list = data && groupContainers(data, filter);
   const retry = () => void refetch();
 
   let body: ReactNode;
   if (isError) {
     body = <ErrorPanel error={error} retrying={isFetching} onRetry={retry} />;
-  } else if (!data || !shown) {
+  } else if (!data || !list) {
     body = <ContainerTable />;
   } else if (data.length === 0) {
     body = <Notice title="No containers yet" />;
-  } else if (shown.length === 0) {
+  } else if (list.shownCount === 0) {
     body = (
       <Notice title="No containers match">
         <Button variant="outline" size="sm" onClick={filter.clear}>
@@ -48,7 +49,7 @@ function ContainerList({ enabled }: { enabled: boolean }) {
       </Notice>
     );
   } else {
-    body = <ContainerTable containers={shown} />;
+    body = <ContainerTable list={list} />;
   }
 
   return (
@@ -57,7 +58,7 @@ function ContainerList({ enabled }: { enabled: boolean }) {
         <Input
           type="search"
           aria-label="Filter containers"
-          placeholder="Filter by name, image, or ID"
+          placeholder="Filter by name, image, project, or ID"
           value={filter.text}
           onChange={(event) => filter.setText(event.target.value)}
           className="w-72"
@@ -84,7 +85,7 @@ function ContainerList({ enabled }: { enabled: boolean }) {
           ))}
         </ToggleGroup>
         <span className="ml-auto text-sm text-muted-foreground tabular-nums">
-          {data && shown && `${shown.length} of ${data.length}`}
+          {data && list && `${list.shownCount} of ${data.length}`}
         </span>
         <Button
           variant="outline"
