@@ -32,7 +32,8 @@ export function useProjectLogs(
     [session, render],
   );
 
-  // Only on a new result: a redundant sync could reopen an ended stream twice.
+  // Sync once per containers result (members or dataUpdatedAt change) to avoid redundant work;
+  // the session's fetchedAt > endedAt and once-per-result guards already prevent double reopens.
   useEffect(() => {
     if (members) session.sync(members, fetchedAt);
   }, [session, members, fetchedAt]);

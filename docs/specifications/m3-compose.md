@@ -344,7 +344,7 @@ were used by the tests.
 | AC-10 | **Unverified, pending manual check** (`ss -x` on leave and reload)             | `a stream that resolves after close is closed at once`, `a member that leaves is closed; its lines and source info stay`, and the M1 fake-Engine close tests, which still pass. The page uses the same `open_logs`/`close_logs` mechanism as the Logs tab (M1 AC-11).                                                                                                     |
 | AC-11 | **Unverified, pending manual check**                                           | `ended calls onEnded; a connection-level error calls onConnectionLost and marks that stream disconnected`, `another error marks only that stream`. Not simulated in the app. See the AC-11 reading under Deviations.                                                                                                                                                      |
 | AC-12 | **Unverified, pending manual check** (60 s load, `ss -x`, scroll while paused) | `capacity trims the oldest across all sources` and `drops the oldest beyond capacity and remembers that it did`. No load test was run and responsiveness was not judged.                                                                                                                                                                                                  |
-| AC-13 | **Unverified, pending manual check**                                           | The M2 checklist was not re-run by hand. All M2 tests still pass (gate below). Manual items outstanding: the container Logs tab unchanged apart from timestamp ordering (Task 6 refactor), and M2 AC-2, AC-4 to AC-8.                                                                                                                                                     |
+| AC-13 | **Unverified, pending manual check**                                           | The M2 checklist was not re-run by hand. All M2 tests still pass (gate below). Manual items outstanding: the container Logs tab unchanged apart from timestamp ordering (the LogView extraction), and M2 AC-2, AC-4 to AC-8.                                                                                                                                              |
 | AC-14 | Verified                                                                       | `cargo fmt --all --check` and `cargo clippy --workspace --all-targets -- -D warnings` clean. `cargo test --workspace`: 136 unit + 31 fake-Engine tests passed, 14 ignored. `cargo test --workspace -- --ignored`: 14 passed. `pnpm check`: 100 files formatted, 0 warnings or errors in 78. `pnpm test`: 16 files, 126 tests passed. `pnpm typecheck` passes.             |
 | AC-15 | Verified, pending review                                                       | README (status, Features, spec link), overview (§4, §5, §10), and ADR 0004 describe Compose as built.                                                                                                                                                                                                                                                                     |
 
@@ -352,11 +352,11 @@ Deviations from the spec and plan made during implementation:
 
 - The merge buffer orders lines by timestamp, and the container Logs tab uses
   the same buffer, so its stdout and stderr lines now sort by timestamp rather
-  than arrival (Task 4). Lines with equal timestamps keep arrival order.
+  than arrival. Lines with equal timestamps keep arrival order.
 - The header reads "1 service" for one service, not "1 services".
 - Replica tags count distinct replica numbers, not containers, so the old and
   new `api` during a force-recreate keep the plain `api` tag and old lines are
-  not retagged (Task 5 review).
+  not retagged.
 - The project page's link reads "Back to containers", as the existing
   not-found pages do, rather than "a Containers link".
 - There are no component or hook tests for the project logs page or the
@@ -379,9 +379,11 @@ Observations, not fixed in M3:
   logs…".
 - Removed containers keep the tag from their last sync (a service later scaled
   shows its old plain tag on those lines).
-- `footerState` and the footer priority logic are pure but untested; `Footer`
-  and `RetryButton` live in `logs-tab.tsx` rather than `log-view.tsx`.
-- Retry or a tail change can cause one extra reopen when the hook re-syncs the
-  same `fetchedAt`.
+- The project page's footer priority logic (`overallStatus` and `StatusFooter`
+  in `project-logs-page.tsx`) is pure but untested. `Footer` lives in
+  `log-view.tsx`; `RetryButton` is defined in `project-logs-page.tsx`.
+- A stream that fails with a connection-level error while the connection check
+  still reports connected stays "disconnected" until the user clicks Retry, as
+  in M1's Logs tab.
 - Service names compare case-sensitively while project names are lowercased;
   Compose allows only lowercase project names, so this is moot in practice.

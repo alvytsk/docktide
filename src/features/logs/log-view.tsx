@@ -133,6 +133,17 @@ function useCopied() {
   return [copied, copy] as const;
 }
 
+export function Footer({ children }: { children: ReactNode }) {
+  return (
+    <div
+      aria-live="polite"
+      className="flex items-center gap-3 border-t px-3 py-2 text-sm text-muted-foreground"
+    >
+      {children}
+    </div>
+  );
+}
+
 export type LogViewProps = {
   buffer: LogBuffer;
   /** Drives the spinner, "No log output yet", and Live. */

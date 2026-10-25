@@ -1,20 +1,8 @@
 import { RotateCw } from "lucide-react";
-import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { useLoadedContainer } from "@/features/container-details/use-container";
-import { LogView } from "./log-view";
+import { Footer, LogView } from "./log-view";
 import { useLogStream, type StreamStatus } from "./use-log-stream";
-
-export function Footer({ children }: { children: ReactNode }) {
-  return (
-    <div
-      aria-live="polite"
-      className="flex items-center gap-3 border-t px-3 py-2 text-sm text-muted-foreground"
-    >
-      {children}
-    </div>
-  );
-}
 
 function StatusFooter({
   status,

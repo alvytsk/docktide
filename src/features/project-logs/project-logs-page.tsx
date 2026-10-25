@@ -8,8 +8,7 @@ import { Toggle } from "@/components/ui/toggle";
 import { ConnectionPanel } from "@/features/connection/connection-panel";
 import { useConnectionStatus } from "@/features/connection/use-connection-status";
 import { useContainers } from "@/features/containers/use-containers";
-import { Footer } from "@/features/logs/logs-tab";
-import { LogView } from "@/features/logs/log-view";
+import { Footer, LogView } from "@/features/logs/log-view";
 import type { StreamStatus } from "@/features/logs/use-log-stream";
 import type { ProjectLogSession } from "./session";
 import { serviceColor } from "./tags";
@@ -178,7 +177,9 @@ export function ProjectLogsPage() {
   } else if (isError && !data) {
     body = <ErrorPanel error={error} retrying={isFetching} onRetry={() => void refetch()} />;
   } else {
-    body = <ProjectLogs project={project} members={members} fetchedAt={dataUpdatedAt} />;
+    body = (
+      <ProjectLogs key={project} project={project} members={members} fetchedAt={dataUpdatedAt} />
+    );
   }
 
   const running = members?.filter((c) => c.state === "running").length;

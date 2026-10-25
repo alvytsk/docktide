@@ -58,7 +58,7 @@ function ContainerList({ enabled }: { enabled: boolean }) {
         <Input
           type="search"
           aria-label="Filter containers"
-          placeholder="Filter by name, image, or ID"
+          placeholder="Filter by name, image, project, or ID"
           value={filter.text}
           onChange={(event) => filter.setText(event.target.value)}
           className="w-72"
