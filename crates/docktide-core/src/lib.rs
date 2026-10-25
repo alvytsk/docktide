@@ -15,7 +15,7 @@ pub mod streams;
 pub mod system;
 
 pub use connection::{ConnectionStatus, DockerService};
-pub use containers::{ContainerState, ContainerSummary, PortMapping, Protocol};
+pub use containers::{ComposeInfo, ContainerState, ContainerSummary, PortMapping, Protocol};
 pub use endpoint::{EndpointSource, ResolvedEndpoint};
 pub use error::{DockerError, ErrorKind, IpcError};
 pub use events::LiveUpdate;
@@ -59,6 +59,10 @@ mod bindings {
             (ImageStore::ident(&cfg), ImageStore::export_to_string(&cfg)),
             (IpcError::ident(&cfg), IpcError::export_to_string(&cfg)),
             (ErrorKind::ident(&cfg), ErrorKind::export_to_string(&cfg)),
+            (
+                ComposeInfo::ident(&cfg),
+                ComposeInfo::export_to_string(&cfg),
+            ),
             (
                 ContainerSummary::ident(&cfg),
                 ContainerSummary::export_to_string(&cfg),

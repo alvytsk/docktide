@@ -4,6 +4,8 @@ use bollard::models::{
     ContainerSummary as DockerContainer, ContainerSummaryStateEnum as DockerState, PortSummary,
     PortSummaryTypeEnum,
 };
+use std::collections::HashMap;
+
 use bollard::query_parameters::ListContainersOptions;
 use serde::Serialize;
 
@@ -47,6 +49,19 @@ pub struct PortMapping {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ComposeInfo {
+    pub project: String,
+    pub service: String,
+    /// `None` when the label is absent or not a number.
+    #[cfg_attr(test, ts(type = "number | null"))]
+    pub number: Option<u32>,
+    /// A `docker compose run` container rather than a service replica.
+    pub one_off: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ContainerSummary {
     pub id: String,
     pub name: String,
@@ -58,6 +73,8 @@ pub struct ContainerSummary {
     /// Unix seconds.
     #[cfg_attr(test, ts(type = "number"))]
     pub created_at: i64,
+    /// From the labels `docker compose` sets (spec M3 FR-1); `None` for other containers.
+    pub compose: Option<ComposeInfo>,
 }
 
 impl DockerService {
@@ -138,8 +155,21 @@ impl ContainerSummary {
             status: container.status.unwrap_or_default(),
             ports: ports(container.ports.unwrap_or_default()),
             created_at: container.created.unwrap_or_default(),
+            compose: container.labels.as_ref().and_then(compose_info),
         }
     }
+}
+
+/// Needs both a project and a service name; the other labels are optional.
+fn compose_info(labels: &HashMap<String, String>) -> Option<ComposeInfo> {
+    let label = |key: &str| labels.get(&format!("com.docker.compose.{key}"));
+    let non_empty = |key| label(key).filter(|value| !value.is_empty());
+    Some(ComposeInfo {
+        project: non_empty("project")?.clone(),
+        service: non_empty("service")?.clone(),
+        number: label("container-number").and_then(|n| n.parse().ok()),
+        one_off: label("oneoff").is_some_and(|v| v.eq_ignore_ascii_case("true")),
+    })
 }
 
 fn ports(ports: Vec<PortSummary>) -> Vec<PortMapping> {
@@ -215,6 +245,87 @@ mod tests {
             host_ip: ip.map(Into::into),
             protocol: p,
         }
+    }
+
+    fn labels(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|&(k, v)| (format!("com.docker.compose.{k}"), v.into()))
+            .collect()
+    }
+
+    const FULL: [(&str, &str); 4] = [
+        ("project", "shop"),
+        ("service", "api"),
+        ("container-number", "2"),
+        ("oneoff", "False"),
+    ];
+
+    #[test]
+    fn compose_info_from_full_labels() {
+        assert_eq!(
+            compose_info(&labels(&FULL)),
+            Some(ComposeInfo {
+                project: "shop".into(),
+                service: "api".into(),
+                number: Some(2),
+                one_off: false,
+            })
+        );
+    }
+
+    #[test]
+    fn no_labels_is_not_compose() {
+        assert_eq!(compose_info(&labels(&[])), None);
+    }
+
+    #[test]
+    fn empty_project_is_not_compose() {
+        assert_eq!(
+            compose_info(&labels(&[("project", ""), ("service", "api")])),
+            None
+        );
+    }
+
+    #[test]
+    fn project_without_service_is_not_compose() {
+        assert_eq!(compose_info(&labels(&[("project", "shop")])), None);
+    }
+
+    #[test]
+    fn non_numeric_number_is_none() {
+        let info = |extra: &[(&str, &str)]| {
+            let mut pairs = vec![("project", "shop"), ("service", "api")];
+            pairs.extend_from_slice(extra);
+            compose_info(&labels(&pairs)).unwrap().number
+        };
+        assert_eq!(info(&[("container-number", "x")]), None);
+        assert_eq!(info(&[]), None);
+    }
+
+    #[test]
+    fn oneoff_is_case_insensitive_true() {
+        let one_off = |extra: &[(&str, &str)]| {
+            let mut pairs = vec![("project", "shop"), ("service", "api")];
+            pairs.extend_from_slice(extra);
+            compose_info(&labels(&pairs)).unwrap().one_off
+        };
+        assert!(one_off(&[("oneoff", "True")]));
+        assert!(one_off(&[("oneoff", "true")]));
+        assert!(!one_off(&[("oneoff", "False")]));
+        assert!(!one_off(&[]));
+    }
+
+    #[test]
+    fn serializes_compose_info() {
+        let c = ContainerSummary::from_docker(DockerContainer {
+            labels: Some(labels(&FULL)),
+            ..Default::default()
+        });
+        assert_eq!(
+            serde_json::to_value(c).unwrap()["compose"],
+            serde_json::json!({ "project": "shop", "service": "api", "number": 2, "oneOff": false })
+        );
     }
 
     #[test]
@@ -318,6 +429,7 @@ mod tests {
                 "status": "",
                 "ports": [{ "privatePort": 80, "publicPort": null, "hostIp": null, "protocol": "udp" }],
                 "createdAt": 1_700_000_000,
+                "compose": null,
             })
         );
     }

@@ -11,6 +11,7 @@ const container = (patch: Partial<ContainerSummary>): ContainerSummary => ({
   status: "Up 3 hours",
   ports: [],
   createdAt: 0,
+  compose: null,
   ...patch,
 });
 

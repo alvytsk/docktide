@@ -12,8 +12,8 @@ use bollard::query_parameters::{
 };
 use bollard::{API_DEFAULT_VERSION, Docker};
 use docktide_core::{
-    ConnectionStatus, ContainerState, DockerError, DockerService, KeyValue, LiveUpdate, LogEvent,
-    LogLine, LogStream, MountType, Protocol, StatsSample, endpoint,
+    ComposeInfo, ConnectionStatus, ContainerState, DockerError, DockerService, KeyValue,
+    LiveUpdate, LogEvent, LogLine, LogStream, MountType, Protocol, StatsSample, endpoint,
 };
 use futures_util::TryStreamExt;
 
@@ -122,6 +122,39 @@ async fn list_includes_the_test_container() {
     assert_eq!(found.image, IMAGE);
     assert_eq!(found.state, ContainerState::Created);
     assert_eq!(found.ports, Vec::new());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires Docker"]
+async fn list_reports_compose_labels() {
+    let labels = [
+        ("com.docker.compose.project", "docktide-test"),
+        ("com.docker.compose.service", "web"),
+        ("com.docker.compose.container-number", "1"),
+        ("com.docker.compose.oneoff", "False"),
+    ];
+    let container = TestContainer::create_with(
+        "compose",
+        ContainerCreateBody {
+            labels: Some(labels.map(|(k, v)| (k.into(), v.into())).into()),
+            ..Default::default()
+        },
+    )
+    .await;
+    let list = DockerService::new().list_containers().await.unwrap();
+    let found = list
+        .iter()
+        .find(|c| c.id == container.id)
+        .expect("test container listed");
+    assert_eq!(
+        found.compose,
+        Some(ComposeInfo {
+            project: "docktide-test".into(),
+            service: "web".into(),
+            number: Some(1),
+            one_off: false,
+        })
+    );
 }
 
 async fn state_of(service: &DockerService, id: &str) -> ContainerState {
