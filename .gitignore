@@ -20,3 +20,6 @@ src-tauri/gen/schemas/
 !.vscode/settings.json
 .DS_Store
 *.sw?
+
+# Brainstorm mockups
+.superpowers/
