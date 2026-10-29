@@ -12,7 +12,7 @@ import { useImageView } from "@/stores/image-view";
 import { BuildCacheStrip } from "./build-cache-strip";
 import { ConfirmDialog } from "./confirm-dialog";
 import { ImageTable } from "./image-table";
-import { filterAndSort, imageRows, unusedSize, type UsageFilter } from "./list";
+import { filterAndSort, imageRows, unusedSize, type ImageRow, type UsageFilter } from "./list";
 import { useImages } from "./use-images";
 import { useRemoveImages } from "./use-remove-images";
 
@@ -66,9 +66,19 @@ function ImageList({ enabled }: { enabled: boolean }) {
   const chosen = unused.filter((r) => picked.has(r.id));
   const selected = new Set(chosen.map((r) => r.id));
 
+  // Attempted ids leave the selection, so a re-pulled image with the same id starts unselected.
+  const removeRows = async (targets: ImageRow[]) => {
+    await remove(targets);
+    setPicked((prev) => {
+      const next = new Set(prev);
+      for (const t of targets) next.delete(t.id);
+      return next;
+    });
+  };
+
   const onSelect = (ids: string[], on: boolean) =>
-    setPicked(() => {
-      const next = new Set(selected);
+    setPicked((prev) => {
+      const next = new Set(prev);
       for (const id of ids) {
         if (on) next.add(id);
         else next.delete(id);
@@ -98,7 +108,7 @@ function ImageList({ enabled }: { enabled: boolean }) {
         selected={selected}
         onSelect={onSelect}
         busy={busy}
-        onRemove={(row) => void remove([row])}
+        onRemove={(row) => void removeRows([row])}
       />
     );
   }
@@ -151,7 +161,7 @@ function ImageList({ enabled }: { enabled: boolean }) {
               source={chosen}
               title={(snap) => `Remove ${snap.length} ${snap.length === 1 ? "image" : "images"}?`}
               confirm="Remove"
-              onConfirm={(snap) => void remove(snap)}
+              onConfirm={(snap) => void removeRows(snap)}
             >
               {(snap) => (
                 <>
@@ -169,7 +179,7 @@ function ImageList({ enabled }: { enabled: boolean }) {
               `Remove ${snap.length} unused ${snap.length === 1 ? "image" : "images"}?`
             }
             confirm="Remove"
-            onConfirm={(snap) => void remove(snap)}
+            onConfirm={(snap) => void removeRows(snap)}
           >
             {(snap) => (
               <>
