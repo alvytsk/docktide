@@ -1,6 +1,6 @@
 # Docktide architecture overview
 
-Status: **Accepted** (living document) · Last updated: 2026-10-24
+Status: **Accepted** (living document) · Last updated: 2026-10-29
 
 This document describes how Docktide is structured and why. Individual decisions
 are recorded as ADRs in [`decisions/`](decisions/). Feature-level behaviour lives
@@ -58,6 +58,7 @@ Owns everything that talks to Docker and every rule about Docker data.
 | `inspect`    | Container details from `inspect`, plus the raw JSON                                                 | M1        |
 | `logs`       | Log streaming: line assembly, escape filtering, paced batches, resume                               | M1        |
 | `stats`      | One stats stream per running container; CLI-equivalent CPU, memory, and rates; one batch per second | M2        |
+| `images`     | Image list and inspect, guarded removal, build cache usage and prune; image event hints             | M4        |
 | `exec`       | Interactive exec sessions                                                                           | later     |
 | `compose`    | Project discovery from labels; CLI orchestration with fixed argv                                    | later     |
 
@@ -93,6 +94,7 @@ src/
 │   ├── containers/      # list page, filter, state badge, lifecycle actions
 │   ├── container-details/ # details page, Overview and Inspect tabs, display helpers
 │   ├── logs/            # Logs tab, ANSI parser, log buffer, stream session
+│   ├── images/          # Images page, image details (Overview, Inspect), build cache strip
 │   ├── stats/           # stats store (10 min history), Stats tab, canvas charts
 │   └── live-updates/    # events subscription and hint → query invalidation
 ├── lib/
@@ -105,24 +107,26 @@ src/
 
 Routes are code-based (ADR 0002 D1): `/containers`,
 `/containers/$id/overview`, `/containers/$id/stats`, `/containers/$id/logs`,
-`/containers/$id/inspect`. Pages load data through TanStack Query, not route
+`/containers/$id/inspect`, `/images`, `/images/$id/overview`,
+`/images/$id/inspect`. Pages load data through TanStack Query, not route
 loaders.
 
 ## 4. State ownership
 
 There is exactly one authority for each piece of state.
 
-| State                                   | Authority                                         | Cached / displayed by                                        |
-| --------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------ |
-| Containers, images, volumes, networks   | Docker Engine                                     | TanStack Query (frontend), no Rust cache                     |
-| Connection status, resolved endpoint    | `docktide-core`                                   | TanStack Query                                               |
-| Log lines in view                       | Docker Engine (the log file)                      | the logs session in `features/logs` (stream data, not Query) |
-| Compose membership                      | Engine labels, read in `docktide-core`            | `ContainerSummary.compose` in the containers query           |
-| Project log lines in view               | Docker Engine (the log files)                     | the project session in `features/project-logs` (ADR 0004 D2) |
-| Metrics: derived values                 | `docktide-core` (CLI formulas, per sample)        | n/a                                                          |
-| Metrics history (10 min)                | the stats store in `features/stats` (ADR 0003 D3) | `useSyncExternalStore`, not Query                            |
-| Filter text, last used tab, preferences | Zustand                                           | n/a                                                          |
-| Window geometry (later)                 | Tauri window-state plugin                         | n/a                                                          |
+| State                                   | Authority                                         | Cached / displayed by                                                   |
+| --------------------------------------- | ------------------------------------------------- | ----------------------------------------------------------------------- |
+| Containers, images, volumes, networks   | Docker Engine                                     | TanStack Query (frontend), no Rust cache                                |
+| Connection status, resolved endpoint    | `docktide-core`                                   | TanStack Query                                                          |
+| Log lines in view                       | Docker Engine (the log file)                      | the logs session in `features/logs` (stream data, not Query)            |
+| Compose membership                      | Engine labels, read in `docktide-core`            | `ContainerSummary.compose` in the containers query                      |
+| Project log lines in view               | Docker Engine (the log files)                     | the project session in `features/project-logs` (ADR 0004 D2)            |
+| Build cache size                        | Docker Engine                                     | TanStack Query; refetched on mount, focus, and after a prune; no events |
+| Metrics: derived values                 | `docktide-core` (CLI formulas, per sample)        | n/a                                                                     |
+| Metrics history (10 min)                | the stats store in `features/stats` (ADR 0003 D3) | `useSyncExternalStore`, not Query                                       |
+| Filter text, last used tab, preferences | Zustand                                           | n/a                                                                     |
+| Window geometry (later)                 | Tauri window-state plugin                         | n/a                                                                     |
 
 Consequences:
 
@@ -145,6 +149,11 @@ Consequences:
   M3 adds no commands: the project logs page opens one `open_logs` stream per
   container of the project, and `ContainerSummary` gains `compose`
   (`ComposeInfo | null`: project, service, replica number, one-off).
+  M4 adds `list_images`, `get_image`, `remove_image`, `get_build_cache_usage`,
+  and `prune_build_cache`, and the `imagesChanged` hint on the live updates
+  channel. `ContainerSummary` gains `imageId`. Every command must be listed in
+  `src-tauri/build.rs` and `capabilities/default.json`, or the WebView's call is
+  refused.
 - **Naming:** commands are `snake_case`. JSON fields are `camelCase`
   (`#[serde(rename_all = "camelCase")]`).
 - **Errors:** a stable, serializable shape:
@@ -296,7 +305,8 @@ remove containers they did not create. The development host runs real workloads.
 | M2        | Monitoring: stats streams, bounded history, charts (done)                  |
 | M3        | Compose: grouped container list, merged project logs (done)                |
 | later     | Compose project lifecycle (start, stop, restart a project; ADR 0004 D3)    |
-| M4        | Images: list, inspect, pull, remove, create container                      |
+| M4        | Images: list, usage, inspect, remove, build cache (done)                   |
+| later     | Pull images, create a container from an image (ADR 0005 D4)                |
 | M5        | Volumes and networks                                                       |
 | M6        | Interactive exec terminal (xterm.js)                                       |
 | ongoing   | Desktop integration (tray, notifications, window state) and packaging      |

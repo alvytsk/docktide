@@ -1,6 +1,6 @@
 # M4: Images
 
-- Status: **Approved** 2026-10-29. Decisions in §10.
+- Status: **Implemented** 2026-10-29. Decisions in §10, verification in §11.
 - Date: 2026-10-29
 - Related: [Architecture overview](../architecture/overview.md) (§6.3 image store neutrality), [M1 spec](m1-live-details-logs.md), [M3 spec](m3-compose.md)
 
@@ -182,7 +182,9 @@ type BuildCacheUsage = { size: number | null; reclaimable: number | null }; // n
 type BuildCachePruneResult = { spaceReclaimed: number };
 
 type ContainerSummary = { /* ...unchanged */ imageId: string };
-type LiveUpdate = /* ...unchanged */ { type: "imagesChanged" };
+type LiveUpdate =
+  | /* ...unchanged */
+  | { type: "imagesChanged" };
 ```
 
 `remove_image` returns `null`. Errors use the existing `IpcError` kinds;
@@ -333,4 +335,91 @@ Implementation calls (not separately approved):
 
 ## 11. Verification
 
-Not yet run.
+Run on 2026-10-29 on the dev host: Ubuntu 26.04.1, kernel 7.0.0-42-generic,
+Docker Engine 29.9.2 (API 1.56, rootful, default socket), Rust 1.99.1, Node
+24.19.0, pnpm 11.28.6. The user ran the S2 checklist in the running app; the
+S3 details page was not checked in the app. Checks that need the running app
+are marked **Unverified, pending manual check** unless the user did them or a
+test covers them. The Docker tests touched only their own test containers and
+images (label `io.docktide.test`); nothing was pruned.
+
+Two defects surfaced during the user's S2 check and were fixed before it passed:
+the image commands were missing from Tauri's ACL (`src-tauri/build.rs` manifest
+and `capabilities/default.json`; the plan omitted that step), and the selection
+was not cleared after removal, so a re-pulled image came back selected.
+
+| ID    | Result                                                  | Evidence                                                                                                                                                                                                                                                                                                                                                      |
+| ----- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-1  | Verified by the user (manual, 2026-10-29)               | S2 check after the two fixes: "ok, everything working fine". `list_and_inspect_include_the_test_image` (Docker) covers listing and sizes of a test image.                                                                                                                                                                                                     |
+| AC-2  | Verified by the user (manual, 2026-10-29); unit tests   | Same S2 check. Usage tests in `src/features/images/list.test.ts`.                                                                                                                                                                                                                                                                                             |
+| AC-3  | Verified by the user (manual, 2026-10-29); unit tests   | Same S2 check. Sort and filter tests in `list.test.ts`; `src/stores/image-view.test.ts`.                                                                                                                                                                                                                                                                      |
+| AC-4  | Verified by the user (manual, 2026-10-29); Docker tests | Same S2 check. Removal of single and multi-tagged test images in `tests/docker.rs` (`cargo test -- --ignored`).                                                                                                                                                                                                                                               |
+| AC-5  | Verified by the user (manual, 2026-10-29); tests        | Same S2 check. `remove_refuses_an_in_use_image_given_its_short_id` and the in-use conflict test (Docker); disabled-Remove rule in `list.test.ts`. The `409` race was not provoked by hand.                                                                                                                                                                    |
+| AC-6  | Verified by the user (manual, 2026-10-29); unit tests   | Same S2 check. `removalSummary` tests in `list.test.ts`.                                                                                                                                                                                                                                                                                                      |
+| AC-7  | Verified by the user (manual, 2026-10-29)               | Same S2 check. Removal goes through the guarded single-image path; no Engine prune is called.                                                                                                                                                                                                                                                                 |
+| AC-8  | Verified by the user (manual, 2026-10-29)               | Same S2 check; the user did not say whether Clear build cache was clicked. `build_cache_usage_reads_without_error` (Docker, read-only) and four unit tests cover the size reading; `prune_build_cache` was never run by a test, by design (spec §7.2).                                                                                                        |
+| AC-9  | Verified by the user (manual, 2026-10-29); unit tests   | Same S2 check. Image event relevance and coalescing: `image_actions_are_relevant`, `image_events_coalesce_into_one_hint_and_are_not_published`, `image_only_window_sends_only_images_changed`; `imagesChanged` case in `apply.test.ts`.                                                                                                                       |
+| AC-10 | **Unverified, pending manual check**                    | Not checked in the app. Router tests cover the routes, including `/images/sha256%3Aabc` landing on `/images/sha256%3Aabc/overview`. No component test for the page (no DOM test environment). Used by links and the Remove-then-navigate path are unseen.                                                                                                     |
+| AC-11 | Partly verified                                         | All M3 tests pass in the gate below. The M3 checklist was not re-run by hand, so it stays outstanding, as M3 did for M2.                                                                                                                                                                                                                                      |
+| AC-12 | Verified                                                | `cargo fmt --all --check` and `cargo clippy --workspace --all-targets -- -D warnings` clean. `cargo test --workspace`: 151 unit + 31 fake-Engine tests passed, 21 ignored. `cargo test --workspace -- --ignored`: 21 passed. `pnpm check`: 119 files formatted, 0 warnings or errors in 94. `pnpm test`: 18 files, 145 tests passed. `pnpm typecheck` passes. |
+| AC-13 | Verified, pending review                                | README (status, Features, spec link), overview (§3.1, §3.3, §4, §5, §10), and ADR 0005 describe Images as built.                                                                                                                                                                                                                                              |
+
+Deviations from the spec and plan made during implementation:
+
+- `ImageInspect` is `{ details, raw }`, with `details: ImageDetails` holding the
+  mapped fields, not the flat shape in §4.
+- Extra files beyond the plan: `confirm-dialog.tsx` (shared by the three
+  confirm dialogs), `image-inspect-tab.tsx` (thin wrapper), and
+  `src/components/raw-json.tsx` (extracted so both Inspect tabs share it).
+- A single-row Remove has no confirm dialog. The spec requires confirms only
+  for multi-image and cache removals.
+- The success summary reads "Removed 1 image" for one removal, not "1 images".
+- Image details: the Remove button and usage badge read the image's row from the
+  images and containers queries. If the image is not in the list (just removed,
+  not loaded), Remove is disabled. After Remove, the page navigates to Images
+  only if the refreshed list no longer contains the id.
+- The build cache is read with `df(None)`: Bollard 0.21.1 cannot URL-encode the
+  `type` filter. The Engine computes all usage types (0.04 s here against 0.00 s
+  typed); upgrade path is a raw request with `?type=build-cache`.
+- `ImageSummary.sharedSize` comes from Bollard's required `shared_size`; an
+  Engine that omits it would fail the whole list instead of giving `null`.
+  Engines 1.42 and later send `-1`, and the minimum supported is 1.44.
+- `tsconfig.app.json` lib is ES2023 (was ES2022) for `toSorted`. WebKitGTK 2.52.6
+  here supports it (since 2.40); older WebKitGTK would crash.
+- A removal blocked by the in-flight guard still clears its ids from the
+  selection. It is reachable only through a dialog opened before the run; the
+  selection is lost, nothing is removed.
+- Confirm dialogs freeze their list when they open, and a second removal is
+  rejected while one runs (review findings, fixed in S2).
+- The removal guard compares the canonical id from inspect, not the raw input
+  (review finding, fixed in S1), so short ids and tags cannot slip past it.
+- The five image commands were added to the Tauri ACL after the user's check
+  found them missing (see above).
+- `#[allow(clippy::too_many_lines)]` on the bindings test, a flat list of types.
+- Event relevance filter now requests `type=[container,image]`;
+  `container_events()` was renamed `watched_events()`.
+- Several tasks had no separate RED run (tests and code written together); see
+  the task reports.
+
+Observations, not fixed in M4:
+
+- No serde-shape test for `ImageSummary` or `ImageDetails`; the bindings drift
+  test covers type names only.
+- The messages "and N more" and "Removed tags a, b; c: …" are untested.
+- `removing_a_missing_image_is_ok` does not match the `remove` test filter.
+- `images.rs` has a second and third `impl DockerService` block, and two
+  `use bollard::models` lines; the `df(None)` comment carries no `ponytail:`
+  marker.
+- `apply.ts` uses the literal `["image"]` key, duplicating the prefix of
+  `imageQueryKey`.
+- `image-view.test.ts` depends on test order; the store is not reset in a
+  `beforeEach`.
+- A confirm clicked during an in-flight removal is dropped silently, with no
+  toast.
+- `image-page.tsx` reads the images cache with an ad-hoc `{ id: string }[]` type,
+  and "Used by" filters containers by `imageId` itself instead of sharing the
+  usage helper.
+- Image environment variables are shown unmasked on the overview, as in the
+  raw inspect (container details hides values until asked).
+- Older Engines (API 1.44 to 1.52) show no build cache size; summing the legacy
+  array is deferred (spec §9).

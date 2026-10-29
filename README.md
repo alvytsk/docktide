@@ -3,7 +3,7 @@
 A modern, lightweight, Linux-first Docker manager with integrated real-time monitoring.
 
 > **Status: pre-alpha.** Milestones M0 (foundation), M1 (live updates, details,
-> logs), M2 (monitoring), and M3 (Compose) are complete. Expect rough edges.
+> logs), M2 (monitoring), M3 (Compose), and M4 (Images) are complete. Expect rough edges.
 
 ## Features
 
@@ -30,9 +30,16 @@ A modern, lightweight, Linux-first Docker manager with integrated real-time moni
   collapse, and the filters also match the project name. A project's Logs page
   merges every container's output in time order, with service tags, service
   chips to hide and show services, and new containers picked up as they start.
+- Images: one row per image with its tags, unique size (what removing it alone
+  frees), age, and whether containers use it. Sort, filter, select unused
+  images, remove one, several, or all unused. Images with containers cannot be
+  removed. The build cache size shows with a button to clear it. An image's page
+  has an overview and the raw `inspect` JSON. Pulls and removals made with the
+  `docker` CLI appear within about a second.
 - Back and forward with Alt+←/→ or the mouse side buttons.
 
-See the [M3 specification](docs/specifications/m3-compose.md), the
+See the [M4 specification](docs/specifications/m4-images.md), the
+[M3 specification](docs/specifications/m3-compose.md), the
 [M2 specification](docs/specifications/m2-monitoring.md), the
 [M1 specification](docs/specifications/m1-live-details-logs.md), the
 [M0 specification](docs/specifications/m0-foundation.md), and the
