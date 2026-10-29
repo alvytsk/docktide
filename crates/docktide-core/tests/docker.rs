@@ -233,6 +233,28 @@ async fn remove_refuses_an_image_used_by_a_container_and_keeps_its_tags() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "requires Docker"]
+async fn remove_refuses_an_in_use_image_given_its_short_id() {
+    let image = TestImage::create("rm-short").await;
+    let _container = TestContainer::create_with(
+        "rm-short",
+        ContainerCreateBody {
+            image: Some(image.tags[0].clone()),
+            ..Default::default()
+        },
+    )
+    .await;
+    let service = DockerService::new();
+    let short = image.id.trim_start_matches("sha256:")[..12].to_owned();
+    let err = service.remove_image(&short).await.unwrap_err();
+    assert!(matches!(err, DockerError::Conflict { .. }), "{err:?}");
+    let inspect = service.inspect_image(&image.id).await.unwrap();
+    for tag in &image.tags {
+        assert!(inspect.details.repo_tags.contains(tag), "{tag} kept");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires Docker"]
 async fn removing_a_missing_image_is_ok() {
     let image = TestImage::create("rm-twice").await;
     let service = DockerService::new();

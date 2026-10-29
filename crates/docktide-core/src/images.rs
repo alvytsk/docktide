@@ -97,8 +97,9 @@ impl DockerService {
     /// An image with tags is removed tag by tag (Docker refuses a by-id delete when it has
     /// several); one that is already gone counts as removed.
     pub async fn remove_image(&self, id: &str) -> Result<(), DockerError> {
-        let tags = match self.inspect_image(id).await {
-            Ok(image) => image.details.repo_tags,
+        // Everything below uses the canonical id: `id` may be a short id or a tag.
+        let (id, tags) = match self.inspect_image(id).await {
+            Ok(image) => (image.details.id, image.details.repo_tags),
             Err(DockerError::NotFound) => return Ok(()),
             Err(err) => return Err(err),
         };
@@ -122,7 +123,7 @@ impl DockerService {
         }
 
         let targets = if tags.is_empty() {
-            vec![id.to_owned()]
+            vec![id.clone()]
         } else {
             tags
         };
