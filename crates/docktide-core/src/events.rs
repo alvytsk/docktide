@@ -34,6 +34,8 @@ pub enum LiveUpdate {
     ContainersChanged {
         ids: Vec<String>,
     },
+    /// Images, tags, or the image list changed.
+    ImagesChanged,
 }
 
 /// Relevant events are collected this long before one hint leaves Rust.
@@ -47,6 +49,11 @@ fn is_relevant(action: &str) -> bool {
         "rename", "update",
     ];
     ACTIONS.contains(&action) || action.starts_with("health_status")
+}
+
+/// Image actions that change the image list or an image's details.
+fn is_relevant_image(action: &str) -> bool {
+    ["create", "pull", "tag", "untag", "delete", "import", "load"].contains(&action)
 }
 
 /// A relevant container event, as seen by in-process subscribers.
@@ -146,7 +153,7 @@ async fn supervise(service: &DockerService, sink: &(dyn Fn(LiveUpdate) -> bool +
                 let publish = |event| service.publish_container_event(event);
                 tokio::select! {
                     end = forward(
-                        docker.events(Some(container_events(since))),
+                        docker.events(Some(watched_events(since))),
                         sink,
                         &publish,
                     ) => {
@@ -202,13 +209,13 @@ pub(crate) fn stream_failure(
     }
 }
 
-fn container_events(since: Duration) -> EventsOptions {
+fn watched_events(since: Duration) -> EventsOptions {
     EventsOptions {
         since: Some(format!("{}.{:09}", since.as_secs(), since.subsec_nanos())),
         until: None,
         filters: Some(HashMap::from([(
             "type".to_owned(),
-            vec!["container".to_owned()],
+            vec!["container".to_owned(), "image".to_owned()],
         )])),
     }
 }
@@ -223,8 +230,10 @@ enum End {
     SinkClosed,
 }
 
-/// Publishes each relevant event, then sends coalesced `ContainersChanged`
-/// hints for `events` until it ends. Pending ids are flushed before returning on `Eof` or `Failed`.
+/// Publishes each relevant container event, then sends coalesced
+/// `ContainersChanged` and `ImagesChanged` hints for `events` until it ends.
+/// Image events are never published: subscribers read the ids as containers.
+/// Pending hints are flushed before returning on `Eof` or `Failed`.
 async fn forward(
     events: impl Stream<Item = Result<EventMessage, BollardError>>,
     sink: &(dyn Fn(LiveUpdate) -> bool + Send + Sync),
@@ -233,11 +242,13 @@ async fn forward(
     let mut events = pin!(events);
     let mut ids: Vec<String> = Vec::new();
     let mut flush_at: Option<Instant> = None;
-    let flush = |ids: &mut Vec<String>| {
-        ids.is_empty()
+    let mut images = false;
+    let flush = |ids: &mut Vec<String>, images: &mut bool| {
+        (ids.is_empty()
             || sink(LiveUpdate::ContainersChanged {
                 ids: std::mem::take(ids),
-            })
+            }))
+            && (!std::mem::take(images) || sink(LiveUpdate::ImagesChanged))
     };
     loop {
         let window = async {
@@ -249,7 +260,12 @@ async fn forward(
         tokio::select! {
             item = events.next() => match item {
                 Some(Ok(event)) => {
-                    if let Some(event) = relevant_event(event) {
+                    if event.typ == Some(EventMessageTypeEnum::IMAGE)
+                        && event.action.as_deref().is_some_and(is_relevant_image)
+                    {
+                        images = true;
+                        flush_at.get_or_insert_with(|| Instant::now() + COALESCE_WINDOW);
+                    } else if let Some(event) = relevant_event(event) {
                         let id = event.id.clone();
                         publish(event);
                         if !ids.contains(&id) {
@@ -259,13 +275,13 @@ async fn forward(
                     }
                 }
                 Some(Err(err)) => {
-                    return if flush(&mut ids) { End::Failed(err) } else { End::SinkClosed };
+                    return if flush(&mut ids, &mut images) { End::Failed(err) } else { End::SinkClosed };
                 }
-                None => return if flush(&mut ids) { End::Eof } else { End::SinkClosed },
+                None => return if flush(&mut ids, &mut images) { End::Eof } else { End::SinkClosed },
             },
             () = window => {
                 flush_at = None;
-                if !flush(&mut ids) {
+                if !flush(&mut ids, &mut images) {
                     return End::SinkClosed;
                 }
             }
@@ -401,6 +417,28 @@ mod tests {
     }
 
     #[test]
+    fn image_actions_are_relevant() {
+        for action in ["create", "pull", "tag", "untag", "delete", "import", "load"] {
+            assert!(is_relevant_image(action), "{action}");
+        }
+        for action in ["save", "push", ""] {
+            assert!(!is_relevant_image(action), "{action}");
+        }
+    }
+
+    #[test]
+    fn events_are_requested_for_containers_and_images() {
+        let options = watched_events(Duration::ZERO);
+        assert_eq!(
+            options.filters,
+            Some(HashMap::from([(
+                "type".to_owned(),
+                vec!["container".to_owned(), "image".to_owned()],
+            )]))
+        );
+    }
+
+    #[test]
     fn backoff_doubles_up_to_thirty_seconds() {
         let mut backoff = Backoff::default();
         let delays: Vec<u64> = (0..8).map(|_| backoff.next().as_secs()).collect();
@@ -433,6 +471,10 @@ mod tests {
         assert_eq!(
             serde_json::to_value(changed(&["a", "b"])).unwrap(),
             json!({ "type": "containersChanged", "ids": ["a", "b"] })
+        );
+        assert_eq!(
+            serde_json::to_value(LiveUpdate::ImagesChanged).unwrap(),
+            json!({ "type": "imagesChanged" })
         );
     }
 
@@ -482,6 +524,40 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn image_events_coalesce_into_one_hint_and_are_not_published() {
+        let recorder = Recorder::default();
+        let sink = recorder.sink(Instant::now());
+        let published = Mutex::new(Vec::new());
+        let events = stream::iter([
+            container("start", "a"),
+            Ok(event(EventMessageTypeEnum::IMAGE, "tag", "sha256:x")),
+            Ok(event(EventMessageTypeEnum::IMAGE, "delete", "sha256:y")),
+        ]);
+        let publish = |e| published.lock().unwrap().push(e);
+        assert!(matches!(forward(events, &sink, &publish).await, End::Eof));
+        assert_eq!(
+            *published.lock().unwrap(),
+            [ContainerEvent {
+                id: "a".into(),
+                action: "start".into()
+            }]
+        );
+        assert_eq!(
+            recorder.updates(),
+            [changed(&["a"]), LiveUpdate::ImagesChanged]
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn image_only_window_sends_only_images_changed() {
+        let recorder = Recorder::default();
+        let sink = recorder.sink(Instant::now());
+        let events = stream::iter([Ok(event(EventMessageTypeEnum::IMAGE, "pull", "busybox"))]);
+        assert!(matches!(forward(events, &sink, &|_| {}).await, End::Eof));
+        assert_eq!(recorder.updates(), [LiveUpdate::ImagesChanged]);
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn separate_bursts_become_separate_hints() {
         let recorder = Recorder::default();
         let sink = recorder.sink(Instant::now());
@@ -502,7 +578,7 @@ mod tests {
         let sink = recorder.sink(Instant::now());
         let events = stream::iter([
             container("exec_start: /bin/sh -c true", "a"),
-            Ok(event(EventMessageTypeEnum::IMAGE, "pull", "busybox")),
+            Ok(event(EventMessageTypeEnum::IMAGE, "push", "busybox")),
         ]);
         assert!(matches!(forward(events, &sink, &|_| {}).await, End::Eof));
         assert_eq!(recorder.updates(), []);

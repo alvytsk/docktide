@@ -1,6 +1,7 @@
 use docktide_core::{
-    ConnectionStatus, ContainerInspect, ContainerSummary, DockerService, IpcError, LiveUpdate,
-    LogEvent, StatsSample, SubscriptionId,
+    BuildCachePruneResult, BuildCacheUsage, ConnectionStatus, ContainerInspect, ContainerSummary,
+    DockerService, ImageInspect, ImageSummary, IpcError, LiveUpdate, LogEvent, StatsSample,
+    SubscriptionId,
 };
 use tauri::ipc::Channel;
 use tauri::webview::PageLoadEvent;
@@ -48,6 +49,35 @@ async fn get_container(
     id: String,
 ) -> Result<ContainerInspect, IpcError> {
     docker.inspect_container(&id).await.map_err(Into::into)
+}
+
+#[tauri::command]
+async fn list_images(docker: State<'_, DockerService>) -> Result<Vec<ImageSummary>, IpcError> {
+    docker.list_images().await.map_err(Into::into)
+}
+
+#[tauri::command]
+async fn get_image(docker: State<'_, DockerService>, id: String) -> Result<ImageInspect, IpcError> {
+    docker.inspect_image(&id).await.map_err(Into::into)
+}
+
+#[tauri::command]
+async fn remove_image(docker: State<'_, DockerService>, id: String) -> Result<(), IpcError> {
+    docker.remove_image(&id).await.map_err(Into::into)
+}
+
+#[tauri::command]
+async fn get_build_cache_usage(
+    docker: State<'_, DockerService>,
+) -> Result<BuildCacheUsage, IpcError> {
+    docker.build_cache_usage().await.map_err(Into::into)
+}
+
+#[tauri::command]
+async fn prune_build_cache(
+    docker: State<'_, DockerService>,
+) -> Result<BuildCachePruneResult, IpcError> {
+    docker.prune_build_cache().await.map_err(Into::into)
 }
 
 #[tauri::command]
@@ -122,6 +152,11 @@ pub fn run() {
             start_container,
             stop_container,
             restart_container,
+            list_images,
+            get_image,
+            remove_image,
+            get_build_cache_usage,
+            prune_build_cache,
             open_logs,
             close_logs,
         ])
