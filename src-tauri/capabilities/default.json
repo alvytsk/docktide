@@ -13,6 +13,11 @@
     "allow-start-container",
     "allow-stop-container",
     "allow-restart-container",
+    "allow-list-images",
+    "allow-get-image",
+    "allow-remove-image",
+    "allow-get-build-cache-usage",
+    "allow-prune-build-cache",
     "allow-open-logs",
     "allow-close-logs"
   ]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-prune-build-cache"
+description = "Enables the prune_build_cache command without any pre-configured scope."
+commands.allow = ["prune_build_cache"]
+
+[[permission]]
+identifier = "deny-prune-build-cache"
+description = "Denies the prune_build_cache command without any pre-configured scope."
+commands.deny = ["prune_build_cache"]
