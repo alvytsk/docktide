@@ -37,23 +37,19 @@ export function imageRows(images: ImageSummary[], containers: ContainerSummary[]
 // Missing values (null size, dangling name) sort last in either direction.
 function compare(a: ImageRow, b: ImageRow, { key, desc }: ImageSort) {
   const dir = desc ? -1 : 1;
-  switch (key) {
-    case "name": {
-      const dangling = Number(a.repoTags.length === 0) - Number(b.repoTags.length === 0);
-      if (dangling !== 0) return dangling;
-      return dir * a.name.toLowerCase().localeCompare(b.name.toLowerCase());
-    }
-    case "uniqueSize": {
-      if (a.uniqueSize === null || b.uniqueSize === null) {
-        return Number(a.uniqueSize === null) - Number(b.uniqueSize === null);
-      }
-      return dir * (a.uniqueSize - b.uniqueSize);
-    }
-    case "size":
-      return dir * (a.size - b.size);
-    case "created":
-      return dir * (a.createdAt - b.createdAt);
+  if (key === "name") {
+    const dangling = Number(a.repoTags.length === 0) - Number(b.repoTags.length === 0);
+    if (dangling !== 0) return dangling;
+    return dir * a.name.toLowerCase().localeCompare(b.name.toLowerCase());
   }
+  if (key === "uniqueSize") {
+    if (a.uniqueSize === null || b.uniqueSize === null) {
+      return Number(a.uniqueSize === null) - Number(b.uniqueSize === null);
+    }
+    return dir * (a.uniqueSize - b.uniqueSize);
+  }
+  const field = key === "size" ? "size" : "createdAt";
+  return dir * (a[field] - b[field]);
 }
 
 /** Text matches any tag or an id prefix (with or without `sha256:`). */
@@ -73,7 +69,7 @@ export function filterAndSort(
         row.id.startsWith(query) ||
         row.id.replace(/^sha256:/, "").startsWith(query),
     )
-    .sort((a, b) => compare(a, b, sort)); // filter already copied
+    .toSorted((a, b) => compare(a, b, sort));
 }
 
 export function unusedSize(rows: ImageRow[]): number {

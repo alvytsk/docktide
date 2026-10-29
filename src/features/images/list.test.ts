@@ -33,6 +33,11 @@ const container = (patch: Partial<ContainerSummary>): ContainerSummary => ({
   ...patch,
 });
 
+const usage = (cs: ContainerSummary[]) => imageRows([image({})], cs)[0]?.usage;
+const cs = (n: number) =>
+  Array.from({ length: n }, (_, i) => container({ name: "abcde"[i] ?? "x" }));
+const ok = (name: string) => ({ name, error: null });
+
 const bySize: ImageSort = { key: "uniqueSize", desc: true };
 const names = (rows: { name: string }[]) => rows.map((r) => r.name);
 
@@ -44,7 +49,6 @@ describe("imageRows", () => {
   });
 
   test("paused and restarting count as in use; only exited containers → stopped with the count", () => {
-    const usage = (cs: ContainerSummary[]) => imageRows([image({})], cs)[0]?.usage;
     expect(usage([container({ state: "paused" })])?.kind).toBe("inUse");
     expect(usage([container({ state: "restarting" })])?.kind).toBe("inUse");
     const stopped = usage([
@@ -139,15 +143,12 @@ describe("filterAndSort", () => {
 });
 
 test("usedByText names up to three containers", () => {
-  const cs = (n: number) =>
-    Array.from({ length: n }, (_, i) => container({ name: "abcde"[i] ?? "x" }));
   expect(usedByText(cs(1))).toBe("Used by a");
   expect(usedByText(cs(3))).toBe("Used by a, b, c");
   expect(usedByText(cs(5))).toBe("Used by a, b, c and 2 more");
 });
 
 test("removalSummary", () => {
-  const ok = (name: string) => ({ name, error: null });
   expect(removalSummary([ok("a"), ok("b"), ok("c")], 1048576)).toEqual({
     ok: true,
     title: "Removed 3 images, about 1 MiB freed",
