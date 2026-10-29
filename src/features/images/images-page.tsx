@@ -46,7 +46,7 @@ function ImageList({ enabled }: { enabled: boolean }) {
   const images = useImages(enabled);
   const containers = useContainers(enabled);
   const view = useImageView();
-  const remove = useRemoveImages();
+  const { remove, busy } = useRemoveImages();
   const [picked, setPicked] = useState<Set<string>>(new Set());
 
   const rows = useMemo(
@@ -97,6 +97,7 @@ function ImageList({ enabled }: { enabled: boolean }) {
         rows={shown}
         selected={selected}
         onSelect={onSelect}
+        busy={busy}
         onRemove={(row) => void remove([row])}
       />
     );
@@ -146,23 +147,37 @@ function ImageList({ enabled }: { enabled: boolean }) {
           {chosen.length > 0 && (
             <ConfirmDialog
               trigger={`Remove ${chosen.length} selected`}
-              title={`Remove ${chosen.length} ${chosen.length === 1 ? "image" : "images"}?`}
+              disabled={busy}
+              source={chosen}
+              title={(snap) => `Remove ${snap.length} ${snap.length === 1 ? "image" : "images"}?`}
               confirm="Remove"
-              onConfirm={() => void remove(chosen)}
+              onConfirm={(snap) => void remove(snap)}
             >
-              About {formatBytes(unusedSize(chosen))} will be freed.
-              <NameList names={chosen.map((r) => r.name)} />
+              {(snap) => (
+                <>
+                  About {formatBytes(unusedSize(snap))} will be freed.
+                  <NameList names={snap.map((r) => r.name)} />
+                </>
+              )}
             </ConfirmDialog>
           )}
           <ConfirmDialog
             trigger="Remove all unused"
-            disabled={unused.length === 0}
-            title={`Remove ${unused.length} unused ${unused.length === 1 ? "image" : "images"}?`}
+            disabled={busy || unused.length === 0}
+            source={unused}
+            title={(snap) =>
+              `Remove ${snap.length} unused ${snap.length === 1 ? "image" : "images"}?`
+            }
             confirm="Remove"
-            onConfirm={() => void remove(unused)}
+            onConfirm={(snap) => void remove(snap)}
           >
-            About {formatBytes(unusedSize(unused))} will be freed. Images with containers are kept.
-            <NameList names={unused.map((r) => r.name)} />
+            {(snap) => (
+              <>
+                About {formatBytes(unusedSize(snap))} will be freed. Images with containers are
+                kept.
+                <NameList names={snap.map((r) => r.name)} />
+              </>
+            )}
           </ConfirmDialog>
           <Button
             variant="outline"

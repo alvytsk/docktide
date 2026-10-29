@@ -27,11 +27,12 @@ export function BuildCacheStrip({ enabled }: { enabled: boolean }) {
         <ConfirmDialog
           trigger="Clear build cache"
           disabled={prune.isPending}
-          title="Clear build cache?"
+          title={() => "Clear build cache?"}
           confirm="Clear build cache"
+          source={reclaimable}
           onConfirm={() => prune.mutate()}
         >
-          This frees about {reclaimable}. Later builds will start from scratch.
+          {(size) => `This frees about ${size}. Later builds will start from scratch.`}
         </ConfirmDialog>
       )}
     </div>

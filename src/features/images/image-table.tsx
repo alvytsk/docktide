@@ -49,10 +49,12 @@ type Props = {
   selected?: Set<string>;
   onSelect?: (ids: string[], on: boolean) => void;
   onRemove?: (row: ImageRow) => void;
+  /** A removal is running; row Remove buttons wait for it. */
+  busy?: boolean;
 };
 
 /** `rows` undefined renders skeleton rows for the first fetch. */
-export function ImageTable({ rows, selected, onSelect, onRemove }: Props) {
+export function ImageTable({ rows, selected, onSelect, onRemove, busy }: Props) {
   const navigate = useNavigate();
   const unused = rows?.filter((r) => r.usage.kind === "unused") ?? [];
   const allSelected = unused.length > 0 && unused.every((r) => selected?.has(r.id));
@@ -131,7 +133,12 @@ export function ImageTable({ rows, selected, onSelect, onRemove }: Props) {
                         <TooltipContent>{usedByText(row.usage.containers)}</TooltipContent>
                       </Tooltip>
                     ) : (
-                      <Button variant="ghost" size="sm" onClick={() => onRemove?.(row)}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() => onRemove?.(row)}
+                      >
                         Remove
                       </Button>
                     )}
