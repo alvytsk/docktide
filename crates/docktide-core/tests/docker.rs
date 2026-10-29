@@ -31,13 +31,22 @@ struct TestImage {
 
 impl TestImage {
     async fn create(test: &str) -> Self {
+        Self::commit(test, true).await
+    }
+
+    /// No tags, so removal is by id; the unique label still gives it its own id.
+    async fn dangling(test: &str) -> Self {
+        Self::commit(test, false).await
+    }
+
+    async fn commit(test: &str, tagged: bool) -> Self {
         let container = TestContainer::create(test).await;
         let docker = container.docker.clone();
         let name = format!("docktide-test/{test}-{}", std::process::id());
         let options = CommitContainerOptions {
             container: Some(container.id.clone()),
-            repo: Some(name.clone()),
-            tag: Some("a".into()),
+            repo: tagged.then(|| name.clone()),
+            tag: tagged.then(|| "a".into()),
             changes: Some(format!(
                 "LABEL io.docktide.test={test}-{}",
                 std::process::id()
@@ -49,24 +58,30 @@ impl TestImage {
             .await
             .unwrap()
             .id;
-        let tag_b = TagImageOptions {
-            repo: Some(name.clone()),
-            tag: Some("b".into()),
-        };
-        docker.tag_image(&id, Some(tag_b)).await.unwrap();
+        let mut tags = Vec::new();
+        if tagged {
+            let tag_b = TagImageOptions {
+                repo: Some(name.clone()),
+                tag: Some("b".into()),
+            };
+            docker.tag_image(&id, Some(tag_b)).await.unwrap();
+            tags = vec![format!("{name}:a"), format!("{name}:b")];
+        }
         // The container is only needed for the commit.
         drop(container);
-        Self {
-            docker,
-            id,
-            tags: vec![format!("{name}:a"), format!("{name}:b")],
-        }
+        Self { docker, id, tags }
     }
 }
 
 impl Drop for TestImage {
     fn drop(&mut self) {
-        for tag in &self.tags {
+        // A dangling image has no tags of its own to remove, so it goes by id.
+        let targets = if self.tags.is_empty() {
+            std::slice::from_ref(&self.id)
+        } else {
+            &self.tags[..]
+        };
+        for tag in targets {
             let options = RemoveImageOptions {
                 force: false,
                 ..Default::default()
@@ -124,7 +139,7 @@ impl TestContainer {
         let mut labels = body.labels.clone().unwrap_or_default();
         labels.insert("io.docktide.test".into(), "true".into());
         let body = ContainerCreateBody {
-            image: Some(IMAGE.into()),
+            image: body.image.or_else(|| Some(IMAGE.into())),
             cmd: body
                 .cmd
                 .or_else(|| Some(vec!["sleep".into(), "300".into()])),
@@ -181,6 +196,60 @@ async fn list_and_inspect_include_the_test_image() {
     assert_eq!(inspect.details.id, image.id);
     assert!(inspect.details.platform.starts_with("linux/"));
     assert_eq!(inspect.raw["Id"], image.id.as_str());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires Docker"]
+async fn remove_untags_every_tag_and_deletes_the_image() {
+    let image = TestImage::create("rm-all").await;
+    let service = DockerService::new();
+    service.remove_image(&image.id).await.unwrap();
+    assert!(matches!(
+        service.inspect_image(&image.id).await,
+        Err(DockerError::NotFound)
+    ));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires Docker"]
+async fn remove_refuses_an_image_used_by_a_container_and_keeps_its_tags() {
+    let image = TestImage::create("rm-used").await;
+    let _container = TestContainer::create_with(
+        "rm-used",
+        ContainerCreateBody {
+            image: Some(image.tags[0].clone()),
+            ..Default::default()
+        },
+    )
+    .await;
+    let service = DockerService::new();
+    let err = service.remove_image(&image.id).await.unwrap_err();
+    assert!(matches!(err, DockerError::Conflict { .. }), "{err:?}");
+    let inspect = service.inspect_image(&image.id).await.unwrap();
+    for tag in &image.tags {
+        assert!(inspect.details.repo_tags.contains(tag), "{tag} kept");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires Docker"]
+async fn removing_a_missing_image_is_ok() {
+    let image = TestImage::create("rm-twice").await;
+    let service = DockerService::new();
+    service.remove_image(&image.id).await.unwrap();
+    service.remove_image(&image.id).await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires Docker"]
+async fn remove_dangling_image_by_id() {
+    let image = TestImage::dangling("rm-dangling").await;
+    let service = DockerService::new();
+    service.remove_image(&image.id).await.unwrap();
+    assert!(matches!(
+        service.inspect_image(&image.id).await,
+        Err(DockerError::NotFound)
+    ));
 }
 
 #[tokio::test]

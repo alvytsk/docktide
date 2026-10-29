@@ -1,7 +1,7 @@
 //! Image list and inspect (spec M4 FR-1, FR-5).
 
 use bollard::models::{ImageInspect as DockerImageInspect, ImageSummary as DockerImageSummary};
-use bollard::query_parameters::ListImagesOptionsBuilder;
+use bollard::query_parameters::{ListImagesOptionsBuilder, RemoveImageOptions};
 use serde::Serialize;
 
 use crate::connection::DockerService;
@@ -89,6 +89,72 @@ impl DockerService {
             details: ImageDetails::from_docker(response),
             raw,
         })
+    }
+}
+
+impl DockerService {
+    /// Removes the image only if no container, in any state, was created from it.
+    /// An image with tags is removed tag by tag (Docker refuses a by-id delete when it has
+    /// several); one that is already gone counts as removed.
+    pub async fn remove_image(&self, id: &str) -> Result<(), DockerError> {
+        let tags = match self.inspect_image(id).await {
+            Ok(image) => image.details.repo_tags,
+            Err(DockerError::NotFound) => return Ok(()),
+            Err(err) => return Err(err),
+        };
+        // Matching by image id, not by the tag a container names, so a sibling tag is safe.
+        let users: Vec<_> = self
+            .list_containers()
+            .await?
+            .into_iter()
+            .filter(|container| container.image_id == id)
+            .map(|container| container.name)
+            .collect();
+        if !users.is_empty() {
+            let more = users.len().saturating_sub(3);
+            let mut names = users[..users.len() - more].join(", ");
+            if more > 0 {
+                names = format!("{names} and {more} more");
+            }
+            return Err(DockerError::Conflict {
+                message: format!("image is used by {names}"),
+            });
+        }
+
+        let targets = if tags.is_empty() {
+            vec![id.to_owned()]
+        } else {
+            tags
+        };
+        let mut removed: Vec<&str> = Vec::new();
+        for target in &targets {
+            match self.remove_one(target).await {
+                Ok(()) => removed.push(target),
+                Err(err) if removed.is_empty() => return Err(err),
+                Err(err) => {
+                    return Err(DockerError::Conflict {
+                        message: format!("Removed tags {}; {target}: {err}", removed.join(", ")),
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// `NotFound` counts as removed.
+    async fn remove_one(&self, name: &str) -> Result<(), DockerError> {
+        let (endpoint, docker) = self.docker().await?;
+        let options = RemoveImageOptions {
+            force: false,
+            ..Default::default()
+        };
+        match docker.remove_image(name, Some(options), None).await {
+            Ok(_) => Ok(()),
+            Err(err) => match self.failed(&err, &endpoint) {
+                DockerError::NotFound => Ok(()),
+                other => Err(other),
+            },
+        }
     }
 }
 
