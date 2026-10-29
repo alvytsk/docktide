@@ -13,3 +13,7 @@ export function toastError(error: IpcError) {
     timeout: 8000,
   });
 }
+
+export function toastSuccess(title: string) {
+  toastManager.add({ title, timeout: 5000 });
+}
