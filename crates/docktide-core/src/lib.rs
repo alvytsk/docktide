@@ -8,6 +8,7 @@ pub mod containers;
 pub mod endpoint;
 pub mod error;
 pub mod events;
+pub mod images;
 pub mod inspect;
 pub mod logs;
 pub mod stats;
@@ -19,6 +20,7 @@ pub use containers::{ComposeInfo, ContainerState, ContainerSummary, PortMapping,
 pub use endpoint::{EndpointSource, ResolvedEndpoint};
 pub use error::{DockerError, ErrorKind, IpcError};
 pub use events::LiveUpdate;
+pub use images::{ImageDetails, ImageInspect, ImageSummary};
 pub use inspect::{
     ContainerDetails, ContainerHealth, ContainerInspect, HealthStatus, KeyValue, MountInfo,
     MountType, NetworkAttachment,
@@ -100,6 +102,18 @@ mod bindings {
                 NetworkAttachment::export_to_string(&cfg),
             ),
             (KeyValue::ident(&cfg), KeyValue::export_to_string(&cfg)),
+            (
+                ImageSummary::ident(&cfg),
+                ImageSummary::export_to_string(&cfg),
+            ),
+            (
+                ImageInspect::ident(&cfg),
+                ImageInspect::export_to_string(&cfg),
+            ),
+            (
+                ImageDetails::ident(&cfg),
+                ImageDetails::export_to_string(&cfg),
+            ),
             (LogEvent::ident(&cfg), LogEvent::export_to_string(&cfg)),
             (LogLine::ident(&cfg), LogLine::export_to_string(&cfg)),
             (LogStream::ident(&cfg), LogStream::export_to_string(&cfg)),

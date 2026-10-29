@@ -5,10 +5,12 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use bollard::models::{
-    ContainerCreateBody, HealthConfig, HostConfig, PortBinding, VolumeCreateRequest,
+    ContainerConfig, ContainerCreateBody, HealthConfig, HostConfig, PortBinding,
+    VolumeCreateRequest,
 };
 use bollard::query_parameters::{
-    CreateContainerOptions, CreateImageOptions, RemoveContainerOptions, RemoveVolumeOptions,
+    CommitContainerOptions, CreateContainerOptions, CreateImageOptions, RemoveContainerOptions,
+    RemoveImageOptions, RemoveVolumeOptions, TagImageOptions,
 };
 use bollard::{API_DEFAULT_VERSION, Docker};
 use docktide_core::{
@@ -18,6 +20,74 @@ use docktide_core::{
 use futures_util::TryStreamExt;
 
 const IMAGE: &str = "busybox:latest";
+
+/// An image committed by this test, with its own two tags; each tag is removed on drop.
+/// Never tags `busybox` itself, so removing the tags cannot touch anyone else's image.
+struct TestImage {
+    docker: Docker,
+    id: String,
+    tags: Vec<String>,
+}
+
+impl TestImage {
+    async fn create(test: &str) -> Self {
+        let container = TestContainer::create(test).await;
+        let docker = container.docker.clone();
+        let name = format!("docktide-test/{test}-{}", std::process::id());
+        let options = CommitContainerOptions {
+            container: Some(container.id.clone()),
+            repo: Some(name.clone()),
+            tag: Some("a".into()),
+            changes: Some(format!(
+                "LABEL io.docktide.test={test}-{}",
+                std::process::id()
+            )),
+            ..Default::default()
+        };
+        let id = docker
+            .commit_container(options, ContainerConfig::default())
+            .await
+            .unwrap()
+            .id;
+        let tag_b = TagImageOptions {
+            repo: Some(name.clone()),
+            tag: Some("b".into()),
+        };
+        docker.tag_image(&id, Some(tag_b)).await.unwrap();
+        // The container is only needed for the commit.
+        drop(container);
+        Self {
+            docker,
+            id,
+            tags: vec![format!("{name}:a"), format!("{name}:b")],
+        }
+    }
+}
+
+impl Drop for TestImage {
+    fn drop(&mut self) {
+        for tag in &self.tags {
+            let options = RemoveImageOptions {
+                force: false,
+                ..Default::default()
+            };
+            let removed = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(self.docker.remove_image(
+                    tag,
+                    Some(options),
+                    None,
+                ))
+            });
+            match removed {
+                Ok(_)
+                | Err(bollard::errors::Error::DockerResponseServerError {
+                    status_code: 404, ..
+                }) => {}
+                Err(err) => eprintln!("failed to remove test image tag {tag}: {err}"),
+            }
+        }
+    }
+}
 
 /// A labelled container owned by this test, force-removed on drop.
 struct TestContainer {
@@ -86,6 +156,31 @@ impl Drop for TestContainer {
             eprintln!("failed to remove test container {}: {err}", self.id);
         }
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires Docker"]
+async fn list_and_inspect_include_the_test_image() {
+    let image = TestImage::create("images").await;
+    let service = DockerService::new();
+    let list = service.list_images().await.unwrap();
+    let found = list
+        .iter()
+        .find(|i| i.id == image.id)
+        .expect("test image listed");
+    for tag in &image.tags {
+        assert!(
+            found.repo_tags.contains(tag),
+            "{tag} in {:?}",
+            found.repo_tags
+        );
+    }
+    assert!(found.size > 0);
+
+    let inspect = service.inspect_image(&image.id).await.unwrap();
+    assert_eq!(inspect.details.id, image.id);
+    assert!(inspect.details.platform.starts_with("linux/"));
+    assert_eq!(inspect.raw["Id"], image.id.as_str());
 }
 
 #[tokio::test]

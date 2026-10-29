@@ -64,11 +64,11 @@ request), matching each container's `imageId` to the image's `id`. Both are the 
 `sha256:` id; checked equal on the containerd store on 2026-10-29.
 `ContainerSummary` gains `imageId: string` (Bollard `image_id`).
 
-| Usage             | Rule                                                          |
-| ----------------- | ------------------------------------------------------------- |
-| **In use**        | at least one container that is running, paused, or restarting |
-| **Stopped (N)**   | only containers in other states; N = their count              |
-| **Unused**        | no container at all                                           |
+| Usage           | Rule                                                          |
+| --------------- | ------------------------------------------------------------- |
+| **In use**      | at least one container that is running, paused, or restarting |
+| **Stopped (N)** | only containers in other states; N = their count              |
+| **Unused**      | no container at all                                           |
 
 "Unused" means no container's `ImageID` is this image's id, whichever tag
 the container was created from.
@@ -182,7 +182,7 @@ type BuildCacheUsage = { size: number | null; reclaimable: number | null }; // n
 type BuildCachePruneResult = { spaceReclaimed: number };
 
 type ContainerSummary = { /* ...unchanged */ imageId: string };
-type LiveUpdate = /* ...unchanged */ | { type: "imagesChanged" };
+type LiveUpdate = /* ...unchanged */ { type: "imagesChanged" };
 ```
 
 `remove_image` returns `null`. Errors use the existing `IpcError` kinds;
@@ -223,21 +223,21 @@ not-found page with "Back to images".
 
 ## 6. Acceptance criteria
 
-| ID    | Criterion                                                                                                                                       | Verification                    |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| AC-1  | The Images page lists the same images as `docker image ls`, with sizes matching `docker system df -v` (Size, Unique size)                        | manual                          |
-| AC-2  | Usage is right for an image with a running container, one used only by stopped containers, and an unused one                                    | unit tests + manual             |
-| AC-3  | Default sort puts the largest unique size first; sort headers and filters work                                                                 | unit tests + manual             |
-| AC-4  | Removing an unused image (single and multi-tagged) removes it; the row disappears within about 1 s                                             | integration test + manual       |
-| AC-5  | Remove is disabled for images with containers and names them; a `409` race shows the Engine's message                                          | unit test + manual              |
-| AC-6  | Removing several selected images reports partial failures without stopping                                                                     | unit test + manual              |
-| AC-7  | "Remove all unused" removes exactly the confirmed Unused image ids, keeps every tag of in-use images, and reports about how much it freed | manual                          |
-| AC-8  | The build cache size matches `docker system df` and clearing it frees the reclaimable space                                                    | manual                          |
-| AC-9  | `docker pull busybox:musl` and `docker rmi` in a terminal update the list within about 1 s                                                     | manual                          |
-| AC-10 | Image details show the FR-5 fields and the raw JSON; Used by links work                                                                        | manual                          |
-| AC-11 | Every M3 acceptance criterion still holds                                                                                                      | re-run of the M3 checklist      |
-| AC-12 | `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `pnpm check`, `pnpm test`, `pnpm typecheck` pass | command output         |
-| AC-13 | README and the architecture overview describe Images as built                                                                                  | review                          |
+| ID    | Criterion                                                                                                                                                | Verification               |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| AC-1  | The Images page lists the same images as `docker image ls`, with sizes matching `docker system df -v` (Size, Unique size)                                | manual                     |
+| AC-2  | Usage is right for an image with a running container, one used only by stopped containers, and an unused one                                             | unit tests + manual        |
+| AC-3  | Default sort puts the largest unique size first; sort headers and filters work                                                                           | unit tests + manual        |
+| AC-4  | Removing an unused image (single and multi-tagged) removes it; the row disappears within about 1 s                                                       | integration test + manual  |
+| AC-5  | Remove is disabled for images with containers and names them; a `409` race shows the Engine's message                                                    | unit test + manual         |
+| AC-6  | Removing several selected images reports partial failures without stopping                                                                               | unit test + manual         |
+| AC-7  | "Remove all unused" removes exactly the confirmed Unused image ids, keeps every tag of in-use images, and reports about how much it freed                | manual                     |
+| AC-8  | The build cache size matches `docker system df` and clearing it frees the reclaimable space                                                              | manual                     |
+| AC-9  | `docker pull busybox:musl` and `docker rmi` in a terminal update the list within about 1 s                                                               | manual                     |
+| AC-10 | Image details show the FR-5 fields and the raw JSON; Used by links work                                                                                  | manual                     |
+| AC-11 | Every M3 acceptance criterion still holds                                                                                                                | re-run of the M3 checklist |
+| AC-12 | `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `pnpm check`, `pnpm test`, `pnpm typecheck` pass | command output             |
+| AC-13 | README and the architecture overview describe Images as built                                                                                            | review                     |
 
 Any criterion not verified in the implementation session is reported as
 **unverified** with the reason.
@@ -283,12 +283,12 @@ tests: `prune_build_cache` acts on the whole Engine and is verified manually.
 Each slice ends with a working, checked state. Stop for the user's review
 after S2.
 
-| Slice                        | Work                                                                                                                | Done when            |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------- | -------------------- |
-| **S1 Core and IPC**          | `images` module: list, inspect, guarded remove; build cache usage and prune; `imageId`; image events; commands; bindings | §7.1, §7.2 pass      |
-| **S2 Images page**           | Route, sidebar, table with usage, sort, filters, selection, remove/bulk/remove-all-unused, build cache strip, live updates       | AC-1 to AC-9         |
-| **S3 Image details**         | Route, Overview and Inspect tabs, Remove from details                                                               | AC-10                |
-| **S4 Docs and verification** | README, overview (§3, §4, §5, §10), ADR 0005 for §10; run the AC checklist and record results in §11                | AC-11 to AC-13       |
+| Slice                        | Work                                                                                                                       | Done when       |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------- | --------------- |
+| **S1 Core and IPC**          | `images` module: list, inspect, guarded remove; build cache usage and prune; `imageId`; image events; commands; bindings   | §7.1, §7.2 pass |
+| **S2 Images page**           | Route, sidebar, table with usage, sort, filters, selection, remove/bulk/remove-all-unused, build cache strip, live updates | AC-1 to AC-9    |
+| **S3 Image details**         | Route, Overview and Inspect tabs, Remove from details                                                                      | AC-10           |
+| **S4 Docs and verification** | README, overview (§3, §4, §5, §10), ADR 0005 for §10; run the AC checklist and record results in §11                       | AC-11 to AC-13  |
 
 ## 9. Known limitations accepted for M4
 

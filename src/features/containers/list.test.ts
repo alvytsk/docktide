@@ -10,6 +10,7 @@ const container = (patch: Partial<ContainerSummary>): ContainerSummary => ({
   state: "running",
   status: "Up 3 hours",
   ports: [],
+  imageId: "sha256:abc",
   createdAt: 0,
   compose: null,
   ...patch,

@@ -3,7 +3,11 @@ import type { ComposeInfo } from "./ComposeInfo";
 import type { ContainerState } from "./ContainerState";
 import type { PortMapping } from "./PortMapping";
 
-export type ContainerSummary = { id: string, name: string, image: string, state: ContainerState, 
+export type ContainerSummary = { id: string, name: string, image: string, 
+/**
+ * `sha256:…` of the image the container was created from.
+ */
+imageId: string, state: ContainerState, 
 /**
  * Docker's text, e.g. "Up 3 hours (healthy)".
  */
