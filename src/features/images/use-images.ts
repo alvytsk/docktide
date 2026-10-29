@@ -1,4 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
+import { createContext, use } from "react";
+import type { ImageInspect } from "@/bindings/ImageInspect";
 import { getBuildCacheUsage, getImage, listImages } from "@/lib/ipc";
 
 export const imagesQueryKey = ["images"] as const;
@@ -32,4 +34,13 @@ export function useBuildCache(enabled: boolean) {
     enabled,
     retry: false,
   });
+}
+
+/** The loaded image, provided by the details page to its tabs. */
+export const ImageContext = createContext<ImageInspect | null>(null);
+
+export function useLoadedImage(): ImageInspect {
+  const image = use(ImageContext);
+  if (!image) throw new Error("useLoadedImage outside a loaded image page");
+  return image;
 }
