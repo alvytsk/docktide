@@ -20,7 +20,9 @@ pub use containers::{ComposeInfo, ContainerState, ContainerSummary, PortMapping,
 pub use endpoint::{EndpointSource, ResolvedEndpoint};
 pub use error::{DockerError, ErrorKind, IpcError};
 pub use events::LiveUpdate;
-pub use images::{ImageDetails, ImageInspect, ImageSummary};
+pub use images::{
+    BuildCachePruneResult, BuildCacheUsage, ImageDetails, ImageInspect, ImageSummary,
+};
 pub use inspect::{
     ContainerDetails, ContainerHealth, ContainerInspect, HealthStatus, KeyValue, MountInfo,
     MountType, NetworkAttachment,
@@ -40,6 +42,7 @@ mod bindings {
 
     /// Run with `DOCKTIDE_UPDATE_BINDINGS=1` to regenerate `src/bindings/`.
     #[test]
+    #[allow(clippy::too_many_lines)] // one entry per exported type
     fn typescript_bindings_are_up_to_date() {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src/bindings");
         let cfg = Config::new();
@@ -113,6 +116,14 @@ mod bindings {
             (
                 ImageDetails::ident(&cfg),
                 ImageDetails::export_to_string(&cfg),
+            ),
+            (
+                BuildCacheUsage::ident(&cfg),
+                BuildCacheUsage::export_to_string(&cfg),
+            ),
+            (
+                BuildCachePruneResult::ident(&cfg),
+                BuildCachePruneResult::export_to_string(&cfg),
             ),
             (LogEvent::ident(&cfg), LogEvent::export_to_string(&cfg)),
             (LogLine::ident(&cfg), LogLine::export_to_string(&cfg)),

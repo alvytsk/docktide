@@ -843,3 +843,13 @@ async fn stats_restart_starts_a_new_stream() {
         .sample(Duration::from_secs(5), |s| s.stream_start)
         .await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires Docker"]
+async fn build_cache_usage_reads_without_error() {
+    // Read-only: pruning would delete the host's real build cache.
+    let usage = DockerService::new().build_cache_usage().await.unwrap();
+    if let (Some(size), Some(reclaimable)) = (usage.size, usage.reclaimable) {
+        assert!(reclaimable <= size, "{usage:?}");
+    }
+}

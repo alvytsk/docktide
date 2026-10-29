@@ -1,7 +1,10 @@
 //! Image list and inspect (spec M4 FR-1, FR-5).
 
+use bollard::models::SystemDataUsageResponse;
 use bollard::models::{ImageInspect as DockerImageInspect, ImageSummary as DockerImageSummary};
-use bollard::query_parameters::{ListImagesOptionsBuilder, RemoveImageOptions};
+use bollard::query_parameters::{
+    DataUsageOptions, ListImagesOptionsBuilder, PruneBuildOptions, RemoveImageOptions,
+};
 use serde::Serialize;
 
 use crate::connection::DockerService;
@@ -159,6 +162,64 @@ impl DockerService {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct BuildCacheUsage {
+    /// Bytes; unset when the Engine does not report the total.
+    #[cfg_attr(test, ts(type = "number | null"))]
+    pub size: Option<i64>,
+    /// Bytes; unset when the Engine does not report the total.
+    #[cfg_attr(test, ts(type = "number | null"))]
+    pub reclaimable: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct BuildCachePruneResult {
+    /// Bytes.
+    #[cfg_attr(test, ts(type = "number"))]
+    pub space_reclaimed: i64,
+}
+
+impl DockerService {
+    pub async fn build_cache_usage(&self) -> Result<BuildCacheUsage, DockerError> {
+        let (endpoint, docker) = self.docker().await?;
+        // Bollard cannot URL-encode the `type` list, so this asks for every type.
+        let response = docker
+            .df(None::<DataUsageOptions>)
+            .await
+            .map_err(|err| self.failed(&err, &endpoint))?;
+        Ok(build_cache_usage(response))
+    }
+
+    /// Clears all of the build cache, not only dangling entries.
+    pub async fn prune_build_cache(&self) -> Result<BuildCachePruneResult, DockerError> {
+        let (endpoint, docker) = self.docker().await?;
+        let options = PruneBuildOptions {
+            all: Some(true),
+            ..Default::default()
+        };
+        let response = docker
+            .prune_build(Some(options))
+            .await
+            .map_err(|err| self.failed(&err, &endpoint))?;
+        Ok(BuildCachePruneResult {
+            space_reclaimed: response.space_reclaimed.unwrap_or_default(),
+        })
+    }
+}
+
+/// Only the totals count: an Engine that sends just the legacy `BuildCache` array gives `None`.
+fn build_cache_usage(response: SystemDataUsageResponse) -> BuildCacheUsage {
+    let usage = response.build_cache_usage.unwrap_or_default();
+    BuildCacheUsage {
+        size: usage.total_size,
+        reclaimable: usage.reclaimable,
+    }
+}
+
 impl ImageSummary {
     fn from_docker(image: DockerImageSummary) -> Self {
         Self {
@@ -222,6 +283,52 @@ mod tests {
     use bollard::models::ImageConfig;
 
     use super::*;
+
+    fn usage(json: &str) -> BuildCacheUsage {
+        build_cache_usage(serde_json::from_str(json).unwrap())
+    }
+
+    const TOTALS: &str =
+        r#""BuildCacheUsage":{"TotalSize":6402404974,"Reclaimable":5713938493,"TotalCount":101}"#;
+    const TOTALS_PARSED: BuildCacheUsage = BuildCacheUsage {
+        size: Some(6_402_404_974),
+        reclaimable: Some(5_713_938_493),
+    };
+
+    #[test]
+    fn totals_are_used() {
+        assert_eq!(usage(&format!("{{{TOTALS}}}")), TOTALS_PARSED);
+    }
+
+    #[test]
+    fn both_shapes_use_totals() {
+        let legacy = r#""BuildCache":[{"ID":"x","Size":10,"InUse":false,"Shared":false}]"#;
+        assert_eq!(usage(&format!("{{{legacy},{TOTALS}}}")), TOTALS_PARSED);
+    }
+
+    #[test]
+    fn legacy_only_response_is_not_reported() {
+        let json = r#"{"BuildCache":[{"ID":"x","Size":10,"InUse":false,"Shared":false}]}"#;
+        assert_eq!(
+            usage(json),
+            BuildCacheUsage {
+                size: None,
+                reclaimable: None
+            }
+        );
+    }
+
+    #[test]
+    fn empty_cache_is_zero() {
+        let json = r#"{"BuildCacheUsage":{"TotalSize":0,"Reclaimable":0}}"#;
+        assert_eq!(
+            usage(json),
+            BuildCacheUsage {
+                size: Some(0),
+                reclaimable: Some(0)
+            }
+        );
+    }
 
     fn summary(tags: &[&str], shared_size: i64) -> ImageSummary {
         ImageSummary::from_docker(DockerImageSummary {
