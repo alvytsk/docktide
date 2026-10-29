@@ -6,7 +6,7 @@ export type StateFilter = "all" | "running" | "stopped";
 export type ContainerFilter = { text: string; state: StateFilter };
 
 // The "Running" filter. "Stopped" is everything else.
-const ACTIVE = new Set<ContainerState>(["running", "paused", "restarting"]);
+export const ACTIVE = new Set<ContainerState>(["running", "paused", "restarting"]);
 
 /** Case-insensitive substring over name, image, and Compose project, or an id prefix. */
 export function matchesFilter(container: ContainerSummary, { text, state }: ContainerFilter) {
