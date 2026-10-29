@@ -255,7 +255,7 @@ async fn remove_refuses_an_in_use_image_given_its_short_id() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "requires Docker"]
-async fn removing_a_missing_image_is_ok() {
+async fn remove_missing_image_is_ok() {
     let image = TestImage::create("rm-twice").await;
     let service = DockerService::new();
     service.remove_image(&image.id).await.unwrap();

@@ -125,24 +125,31 @@ impl DockerService {
             });
         }
 
-        let targets = if tags.is_empty() {
-            vec![id.clone()]
-        } else {
-            tags
-        };
+        let by_id = tags.is_empty();
+        let targets = if by_id { vec![id.clone()] } else { tags };
         let mut removed: Vec<&str> = Vec::new();
+        let mut moved: Vec<&str> = Vec::new();
         for target in &targets {
-            match self.remove_one(target).await {
-                Ok(()) => removed.push(target),
-                Err(err) if removed.is_empty() => return Err(err),
-                Err(err) => {
-                    return Err(DockerError::Conflict {
-                        message: format!("Removed tags {}; {target}: {err}", removed.join(", ")),
-                    });
+            // A build or pull can move a tag to another image after the inspect above.
+            if !by_id {
+                match self.inspect_image(target).await {
+                    Ok(image) if image.details.id != id => {
+                        moved.push(target);
+                        continue;
+                    }
+                    Ok(_) | Err(DockerError::NotFound) => {}
+                    Err(err) => return Err(partial(&removed, target, err)),
                 }
             }
+            match self.remove_one(target).await {
+                Ok(()) => removed.push(target),
+                Err(err) => return Err(partial(&removed, target, err)),
+            }
         }
-        Ok(())
+        if moved.is_empty() {
+            return Ok(());
+        }
+        Err(moved_error(&removed, &moved))
     }
 
     /// `NotFound` counts as removed.
@@ -159,6 +166,29 @@ impl DockerService {
                 other => Err(other),
             },
         }
+    }
+}
+
+/// The first failure returns the error as is; a later one reports what was already removed.
+fn partial(removed: &[&str], tag: &str, err: DockerError) -> DockerError {
+    if removed.is_empty() {
+        err
+    } else {
+        DockerError::Conflict {
+            message: format!("Removed tags {}; {tag}: {err}", removed.join(", ")),
+        }
+    }
+}
+
+/// Tags that moved to another image were skipped; they are not ours to delete.
+fn moved_error(removed: &[&str], moved: &[&str]) -> DockerError {
+    let prefix = if removed.is_empty() {
+        String::new()
+    } else {
+        format!("Removed tags {}; ", removed.join(", "))
+    };
+    DockerError::Conflict {
+        message: format!("{prefix}{} now points to another image", moved.join(", ")),
     }
 }
 
@@ -411,5 +441,17 @@ mod tests {
         assert_eq!(d.exposed_ports, ["80/tcp", "8080/tcp"]);
         let keys: Vec<_> = d.labels.iter().map(|l| l.key.as_str()).collect();
         assert_eq!(keys, ["a", "b"]);
+    }
+
+    #[test]
+    fn moved_tags_are_reported_after_the_removed_ones() {
+        assert_eq!(
+            moved_error(&[], &["app:latest"]).to_string(),
+            "app:latest now points to another image"
+        );
+        assert_eq!(
+            moved_error(&["app:a", "app:b"], &["app:latest"]).to_string(),
+            "Removed tags app:a, app:b; app:latest now points to another image"
+        );
     }
 }

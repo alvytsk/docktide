@@ -18,8 +18,7 @@ export function BuildCacheStrip({ enabled }: { enabled: boolean }) {
   });
   if (!data) return null;
   const { text, canClear } = buildCacheText(data);
-  const reclaimable =
-    data.reclaimable === null ? "all unused build cache" : formatBytes(data.reclaimable);
+  const reclaimable = data.reclaimable === null ? null : formatBytes(data.reclaimable);
   return (
     <div className="flex items-center gap-3 text-sm">
       <span className="text-muted-foreground">{text}</span>
@@ -32,7 +31,9 @@ export function BuildCacheStrip({ enabled }: { enabled: boolean }) {
           source={reclaimable}
           onConfirm={() => prune.mutate()}
         >
-          {(size) => `This frees about ${size}. Later builds will start from scratch.`}
+          {(size) =>
+            `${size === null ? "This removes all unused build cache." : `This frees about ${size}.`} Later builds will start from scratch.`
+          }
         </ConfirmDialog>
       )}
     </div>

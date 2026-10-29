@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createContext, use } from "react";
+import type { ContainerSummary } from "@/bindings/ContainerSummary";
 import type { ImageInspect } from "@/bindings/ImageInspect";
 import { getBuildCacheUsage, getImage, listImages } from "@/lib/ipc";
 
@@ -37,9 +38,10 @@ export function useBuildCache(enabled: boolean) {
 }
 
 /** The loaded image, provided by the details page to its tabs. */
-export const ImageContext = createContext<ImageInspect | null>(null);
+export type LoadedImage = ImageInspect & { users: ContainerSummary[] };
+export const ImageContext = createContext<LoadedImage | null>(null);
 
-export function useLoadedImage(): ImageInspect {
+export function useLoadedImage(): LoadedImage {
   const image = use(ImageContext);
   if (!image) throw new Error("useLoadedImage outside a loaded image page");
   return image;

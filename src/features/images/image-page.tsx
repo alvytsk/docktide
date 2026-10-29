@@ -118,7 +118,9 @@ function Details({ id, connected }: { id: string; connected: boolean }) {
           Inspect
         </Link>
       </nav>
-      <ImageContext value={data}>
+      <ImageContext
+        value={{ ...data, users: row && row.usage.kind !== "unused" ? row.usage.containers : [] }}
+      >
         <Outlet />
       </ImageContext>
     </>

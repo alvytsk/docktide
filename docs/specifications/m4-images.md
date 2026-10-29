@@ -361,7 +361,7 @@ was not cleared after removal, so a re-pulled image came back selected.
 | AC-9  | Verified by the user (manual, 2026-10-29); unit tests   | Same S2 check. Image event relevance and coalescing: `image_actions_are_relevant`, `image_events_coalesce_into_one_hint_and_are_not_published`, `image_only_window_sends_only_images_changed`; `imagesChanged` case in `apply.test.ts`.                                                                                                                       |
 | AC-10 | **Unverified, pending manual check**                    | Not checked in the app. Router tests cover the routes, including `/images/sha256%3Aabc` landing on `/images/sha256%3Aabc/overview`. No component test for the page (no DOM test environment). Used by links and the Remove-then-navigate path are unseen.                                                                                                     |
 | AC-11 | Partly verified                                         | All M3 tests pass in the gate below. The M3 checklist was not re-run by hand, so it stays outstanding, as M3 did for M2.                                                                                                                                                                                                                                      |
-| AC-12 | Verified                                                | `cargo fmt --all --check` and `cargo clippy --workspace --all-targets -- -D warnings` clean. `cargo test --workspace`: 151 unit + 31 fake-Engine tests passed, 21 ignored. `cargo test --workspace -- --ignored`: 21 passed. `pnpm check`: 119 files formatted, 0 warnings or errors in 94. `pnpm test`: 18 files, 145 tests passed. `pnpm typecheck` passes. |
+| AC-12 | Verified                                                | `cargo fmt --all --check` and `cargo clippy --workspace --all-targets -- -D warnings` clean. `cargo test --workspace`: 152 unit + 31 fake-Engine tests passed, 21 ignored. `cargo test --workspace -- --ignored`: 21 passed. `pnpm check`: 120 files formatted, 0 warnings or errors in 95. `pnpm test`: 19 files, 146 tests passed. `pnpm typecheck` passes. |
 | AC-13 | Verified, pending review                                | README (status, Features, spec link), overview (§3.1, §3.3, §4, §5, §10), and ADR 0005 describe Images as built.                                                                                                                                                                                                                                              |
 
 Deviations from the spec and plan made during implementation:
@@ -384,7 +384,15 @@ Deviations from the spec and plan made during implementation:
 - `ImageSummary.sharedSize` comes from Bollard's required `shared_size`; an
   Engine that omits it would fail the whole list instead of giving `null`.
   Engines 1.42 and later send `-1`, and the minimum supported is 1.44.
-- `tsconfig.app.json` lib is ES2023 (was ES2022) for `toSorted`. WebKitGTK 2.52.6
+- Moved-tag guard (final review): `remove_image` re-inspects each tag just before
+  deleting it and skips one that now points to another image, then returns
+  `Conflict` ("<tag> now points to another image", after "Removed tags …; " when
+  some were removed). A mid-loop move cannot be provoked deterministically
+  against a real Engine, so the message is unit-tested (`moved_tags_are_reported_after_the_removed_ones`)
+  and the guard path runs in the multi-tag Docker removal test.
+- `src/lib/commands.test.ts` checks that every command in `ipc.ts` is in the
+  `build.rs` manifest and the capability file.
+- `tsconfig.app.json` lib is ES2023 (was ES2022) for `toSorted`; the linter's `no-array-sort` rule rejects every `.sort` form. WebKitGTK 2.52.6
   here supports it (since 2.40); older WebKitGTK would crash.
 - A removal blocked by the in-flight guard still clears its ids from the
   selection. It is reachable only through a dialog opened before the run; the

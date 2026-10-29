@@ -6,7 +6,6 @@ import {
   parseDockerTime,
   shellQuote,
 } from "@/features/container-details/format";
-import { useContainers } from "@/features/containers/use-containers";
 import { useLoadedImage } from "./use-images";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -43,10 +42,8 @@ const argv = (args: string[]) => (args.length > 0 ? <Mono>{shellQuote(args)}</Mo
 
 /** The FR-5 sections. Empty sections say "None" rather than disappearing. */
 export function ImageOverviewTab() {
-  const { details: d } = useLoadedImage();
+  const { details: d, users } = useLoadedImage();
   const created = parseDockerTime(d.createdAt);
-  // The query is on while the page is loaded; stopped containers count as users too.
-  const users = useContainers(true).data?.filter((c) => c.imageId === d.id) ?? [];
   return (
     <div className="flex max-w-5xl flex-col gap-8 pb-8">
       <Section title="Tags">
