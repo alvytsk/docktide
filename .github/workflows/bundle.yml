@@ -1,0 +1,54 @@
+name: Linux bundles
+
+# Builds the .deb, .rpm and AppImage. Called by ci.yml on every PR and push
+# to main, and by release.yml; never publishes.
+
+on:
+  workflow_call:
+    inputs:
+      sha:
+        description: "Full SHA of the commit to bundle"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build (ubuntu-22.04)
+    # The oldest available runner, so the bundles also run on older glibc.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.sha }}
+      - name: Install Tauri build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf file
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm tauri build
+      - name: Collect bundles and checksums
+        run: |
+          mkdir dist-bundles
+          cp target/release/bundle/deb/*.deb target/release/bundle/rpm/*.rpm \
+            target/release/bundle/appimage/*.AppImage dist-bundles/
+          cd dist-bundles && sha256sum -- * > SHA256SUMS && cat SHA256SUMS
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux-bundles-${{ inputs.sha }}
+          path: dist-bundles/
+          if-no-files-found: error
+          overwrite: true

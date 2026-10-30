@@ -1,0 +1,74 @@
+name: Release
+
+# A v* tag on a main commit builds the bundles and publishes a GitHub
+# prerelease with the matching CHANGELOG.md section as its notes.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - id: check
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "$GITHUB_SHA is not on main"; exit 1; }
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')
+          for v in "$(jq -r .version src-tauri/tauri.conf.json)" "$(jq -r .version package.json)"; do
+            [ "$v" = "$version" ] || { echo "version mismatch: Cargo.toml has $version, found $v"; exit 1; }
+          done
+          [ "$GITHUB_REF_NAME" = "v$version" ] || { echo "tag $GITHUB_REF_NAME does not match version $version"; exit 1; }
+          grep -q "^## \[$version\] - " CHANGELOG.md || { echo "CHANGELOG.md has no section for $version"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  bundle:
+    name: Linux bundles
+    needs: validate
+    uses: ./.github/workflows/bundle.yml
+    with:
+      sha: ${{ github.sha }}
+
+  publish:
+    name: Publish GitHub Release
+    needs: [validate, bundle]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ github.ref_name }}
+      VERSION: ${{ needs.validate.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v8
+        with:
+          name: linux-bundles-${{ github.sha }}
+          path: dist-bundles
+      - run: cd dist-bundles && sha256sum -c SHA256SUMS
+      - name: Release notes
+        run: |
+          awk -v h="## [$VERSION] - " 'index($0, h) == 1 { on = 1; next } on && /^## / { exit } on' \
+            CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          test -s "$RUNNER_TEMP/notes.md"
+      # Draft first, so a failed upload never leaves a half-filled public release.
+      - name: Create and publish
+        run: |
+          gh release create "$TAG" --verify-tag --draft --prerelease \
+            --title "Docktide $VERSION" --notes-file "$RUNNER_TEMP/notes.md" dist-bundles/*
+          gh release edit "$TAG" --draft=false

@@ -1,6 +1,6 @@
 # Docktide architecture overview
 
-Status: **Accepted** (living document) · Last updated: 2026-10-29
+Status: **Accepted** (living document) · Last updated: 2026-10-30
 
 This document describes how Docktide is structured and why. Individual decisions
 are recorded as ADRs in [`decisions/`](decisions/). Feature-level behaviour lives
@@ -52,7 +52,7 @@ Owns everything that talks to Docker and every rule about Docker data.
 | `connection` | Build the Bollard client, ping, negotiate API version, report connection status                     | M0        |
 | `error`      | Typed `DockerError` with stable, UI-relevant kinds; classification of failures                      | M0        |
 | `system`     | Engine info and version                                                                             | M0        |
-| `containers` | List, map to domain types, lifecycle operations                                                     | M0        |
+| `containers` | List, map to domain types, lifecycle operations; Compose membership from labels                     | M0, M3    |
 | `streams`    | Registry of running producers and their cancellation tokens                                         | M1        |
 | `events`     | Supervised events stream, relevance filter, coalesced invalidation hints                            | M1        |
 | `inspect`    | Container details from `inspect`, plus the raw JSON                                                 | M1        |
@@ -60,7 +60,7 @@ Owns everything that talks to Docker and every rule about Docker data.
 | `stats`      | One stats stream per running container; CLI-equivalent CPU, memory, and rates; one batch per second | M2        |
 | `images`     | Image list and inspect, guarded removal, build cache usage and prune; image event hints             | M4        |
 | `exec`       | Interactive exec sessions                                                                           | later     |
-| `compose`    | Project discovery from labels; CLI orchestration with fixed argv                                    | later     |
+| `compose`    | Project lifecycle through the `docker compose` CLI with fixed argv                                  | later     |
 
 Dependencies: `bollard`, `tokio`, `tokio-util`, `serde`, `thiserror`, `tracing`, `futures-util`.
 It must compile and test without a display server, WebKitGTK, or Tauri.
@@ -94,6 +94,7 @@ src/
 │   ├── containers/      # list page, filter, state badge, lifecycle actions
 │   ├── container-details/ # details page, Overview and Inspect tabs, display helpers
 │   ├── logs/            # Logs tab, ANSI parser, log buffer, stream session
+│   ├── project-logs/    # Compose project logs page: merged session, service tags
 │   ├── images/          # Images page, image details (Overview, Inspect), build cache strip
 │   ├── stats/           # stats store (10 min history), Stats tab, canvas charts
 │   └── live-updates/    # events subscription and hint → query invalidation
@@ -107,7 +108,7 @@ src/
 
 Routes are code-based (ADR 0002 D1): `/containers`,
 `/containers/$id/overview`, `/containers/$id/stats`, `/containers/$id/logs`,
-`/containers/$id/inspect`, `/images`, `/images/$id/overview`,
+`/containers/$id/inspect`, `/projects/$project/logs`, `/images`, `/images/$id/overview`,
 `/images/$id/inspect`. Pages load data through TanStack Query, not route
 loaders.
 
@@ -291,6 +292,12 @@ As built in M1 and M2; exec follows the same rules.
 | Frontend logic (filters, action availability, error mapping)           | `vp test` (Vitest)                                                       | yes             | no           |
 | Frontend static checks                                                 | `vp check` (Oxfmt, Oxlint, type check on TypeScript 7)                   | yes             | no           |
 | End to end                                                             | manual checklist per milestone (automated E2E deferred)                  | n/a             | yes          |
+| Packaging                                                              | `pnpm tauri build` (`.deb`, `.rpm`, AppImage) on Ubuntu 22.04            | CI only         | no           |
+
+CI ([`.github/workflows/`](../../.github/workflows/)) runs every row marked
+"yes" plus packaging on each pull request and push to `main`. It has no Docker
+Engine, so the `--ignored` suite runs locally only. A weekly job audits both
+lockfiles, and a `v*` tag publishes the bundles as a GitHub prerelease.
 
 Docker integration tests must create and remove **their own** containers, labelled
 `io.docktide.test=true`, from a small image. They must never stop, restart, or
@@ -304,12 +311,13 @@ remove containers they did not create. The development host runs real workloads.
 | M1        | Live updates via events stream, container details and inspect, logs (done) |
 | M2        | Monitoring: stats streams, bounded history, charts (done)                  |
 | M3        | Compose: grouped container list, merged project logs (done)                |
-| later     | Compose project lifecycle (start, stop, restart a project; ADR 0004 D3)    |
 | M4        | Images: list, usage, inspect, remove, build cache (done)                   |
-| later     | Pull images, create a container from an image (ADR 0005 D4)                |
 | M5        | Volumes and networks                                                       |
 | M6        | Interactive exec terminal (xterm.js)                                       |
-| ongoing   | Desktop integration (tray, notifications, window state) and packaging      |
+| later     | Compose project lifecycle (start, stop, restart a project; ADR 0004 D3)    |
+| later     | Pull images, create a container from an image (ADR 0005 D4)                |
+| ongoing   | Desktop integration (tray, notifications, window state)                    |
+| ongoing   | CI and packaging: checks and Linux bundles on every PR, tagged releases    |
 
 The order after M1 is open for discussion. Each milestone's decisions are in its
 spec (§10) and, where they bind later work, in an ADR.
