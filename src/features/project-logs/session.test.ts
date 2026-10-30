@@ -11,6 +11,7 @@ const member = (service: string, patch: Partial<ContainerSummary> = {}): Contain
   state: "running",
   status: "Up",
   ports: [],
+  imageId: "sha256:abc",
   createdAt: 0,
   compose: { project: "shop", service, number: 1, oneOff: false },
   ...patch,

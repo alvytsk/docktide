@@ -66,6 +66,8 @@ pub struct ContainerSummary {
     pub id: String,
     pub name: String,
     pub image: String,
+    /// `sha256:…` of the image the container was created from.
+    pub image_id: String,
     pub state: ContainerState,
     /// Docker's text, e.g. "Up 3 hours (healthy)".
     pub status: String,
@@ -151,6 +153,7 @@ impl ContainerSummary {
             id,
             name,
             image: container.image.unwrap_or_default(),
+            image_id: container.image_id.unwrap_or_default(),
             state,
             status: container.status.unwrap_or_default(),
             ports: ports(container.ports.unwrap_or_default()),
@@ -224,6 +227,7 @@ mod tests {
         DockerContainer {
             id: Some("0123456789abcdef0123".into()),
             names: names.map(|names| names.iter().map(|&n| n.into()).collect()),
+            image_id: Some("sha256:abc".into()),
             state,
             ..Default::default()
         }
@@ -425,6 +429,7 @@ mod tests {
                 "id": "0123456789abcdef0123",
                 "name": "web",
                 "image": "",
+                "imageId": "sha256:abc",
                 "state": "running",
                 "status": "",
                 "ports": [{ "privatePort": 80, "publicPort": null, "hostIp": null, "protocol": "udp" }],

@@ -61,6 +61,19 @@ describe("routes", () => {
     });
   });
 
+  test("an image id with sha256: round-trips and opens on overview", async () => {
+    const r = await landOn("/images/sha256%3Aabc");
+    expect(r.path).toBe("/images/sha256%3Aabc/overview");
+    expect(r.routes).toContain("/images/$id/overview");
+  });
+
+  test("an image's inspect tab is a route", async () => {
+    expect(await landOn("/images/x/inspect")).toMatchObject({
+      path: "/images/x/inspect",
+      notFound: false,
+    });
+  });
+
   test("unknown paths reach the not-found component", async () => {
     expect((await landOn("/nope")).notFound).toBe(true);
     expect((await landOn("/containers/abc/nope")).notFound).toBe(true);

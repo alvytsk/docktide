@@ -5,10 +5,12 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use bollard::models::{
-    ContainerCreateBody, HealthConfig, HostConfig, PortBinding, VolumeCreateRequest,
+    ContainerConfig, ContainerCreateBody, HealthConfig, HostConfig, PortBinding,
+    VolumeCreateRequest,
 };
 use bollard::query_parameters::{
-    CreateContainerOptions, CreateImageOptions, RemoveContainerOptions, RemoveVolumeOptions,
+    CommitContainerOptions, CreateContainerOptions, CreateImageOptions, RemoveContainerOptions,
+    RemoveImageOptions, RemoveVolumeOptions, TagImageOptions,
 };
 use bollard::{API_DEFAULT_VERSION, Docker};
 use docktide_core::{
@@ -18,6 +20,89 @@ use docktide_core::{
 use futures_util::TryStreamExt;
 
 const IMAGE: &str = "busybox:latest";
+
+/// An image committed by this test, with its own two tags; each tag is removed on drop.
+/// Never tags `busybox` itself, so removing the tags cannot touch anyone else's image.
+struct TestImage {
+    docker: Docker,
+    id: String,
+    tags: Vec<String>,
+}
+
+impl TestImage {
+    async fn create(test: &str) -> Self {
+        Self::commit(test, true).await
+    }
+
+    /// No tags, so removal is by id; the unique label still gives it its own id.
+    async fn dangling(test: &str) -> Self {
+        Self::commit(test, false).await
+    }
+
+    async fn commit(test: &str, tagged: bool) -> Self {
+        let container = TestContainer::create(test).await;
+        let docker = container.docker.clone();
+        let name = format!("docktide-test/{test}-{}", std::process::id());
+        let options = CommitContainerOptions {
+            container: Some(container.id.clone()),
+            repo: tagged.then(|| name.clone()),
+            tag: tagged.then(|| "a".into()),
+            changes: Some(format!(
+                "LABEL io.docktide.test={test}-{}",
+                std::process::id()
+            )),
+            ..Default::default()
+        };
+        let id = docker
+            .commit_container(options, ContainerConfig::default())
+            .await
+            .unwrap()
+            .id;
+        let mut tags = Vec::new();
+        if tagged {
+            let tag_b = TagImageOptions {
+                repo: Some(name.clone()),
+                tag: Some("b".into()),
+            };
+            docker.tag_image(&id, Some(tag_b)).await.unwrap();
+            tags = vec![format!("{name}:a"), format!("{name}:b")];
+        }
+        // The container is only needed for the commit.
+        drop(container);
+        Self { docker, id, tags }
+    }
+}
+
+impl Drop for TestImage {
+    fn drop(&mut self) {
+        // A dangling image has no tags of its own to remove, so it goes by id.
+        let targets = if self.tags.is_empty() {
+            std::slice::from_ref(&self.id)
+        } else {
+            &self.tags[..]
+        };
+        for tag in targets {
+            let options = RemoveImageOptions {
+                force: false,
+                ..Default::default()
+            };
+            let removed = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(self.docker.remove_image(
+                    tag,
+                    Some(options),
+                    None,
+                ))
+            });
+            match removed {
+                Ok(_)
+                | Err(bollard::errors::Error::DockerResponseServerError {
+                    status_code: 404, ..
+                }) => {}
+                Err(err) => eprintln!("failed to remove test image tag {tag}: {err}"),
+            }
+        }
+    }
+}
 
 /// A labelled container owned by this test, force-removed on drop.
 struct TestContainer {
@@ -54,7 +139,7 @@ impl TestContainer {
         let mut labels = body.labels.clone().unwrap_or_default();
         labels.insert("io.docktide.test".into(), "true".into());
         let body = ContainerCreateBody {
-            image: Some(IMAGE.into()),
+            image: body.image.or_else(|| Some(IMAGE.into())),
             cmd: body
                 .cmd
                 .or_else(|| Some(vec!["sleep".into(), "300".into()])),
@@ -86,6 +171,107 @@ impl Drop for TestContainer {
             eprintln!("failed to remove test container {}: {err}", self.id);
         }
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires Docker"]
+async fn list_and_inspect_include_the_test_image() {
+    let image = TestImage::create("images").await;
+    let service = DockerService::new();
+    let list = service.list_images().await.unwrap();
+    let found = list
+        .iter()
+        .find(|i| i.id == image.id)
+        .expect("test image listed");
+    for tag in &image.tags {
+        assert!(
+            found.repo_tags.contains(tag),
+            "{tag} in {:?}",
+            found.repo_tags
+        );
+    }
+    assert!(found.size > 0);
+
+    let inspect = service.inspect_image(&image.id).await.unwrap();
+    assert_eq!(inspect.details.id, image.id);
+    assert!(inspect.details.platform.starts_with("linux/"));
+    assert_eq!(inspect.raw["Id"], image.id.as_str());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires Docker"]
+async fn remove_untags_every_tag_and_deletes_the_image() {
+    let image = TestImage::create("rm-all").await;
+    let service = DockerService::new();
+    service.remove_image(&image.id).await.unwrap();
+    assert!(matches!(
+        service.inspect_image(&image.id).await,
+        Err(DockerError::NotFound)
+    ));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires Docker"]
+async fn remove_refuses_an_image_used_by_a_container_and_keeps_its_tags() {
+    let image = TestImage::create("rm-used").await;
+    let _container = TestContainer::create_with(
+        "rm-used",
+        ContainerCreateBody {
+            image: Some(image.tags[0].clone()),
+            ..Default::default()
+        },
+    )
+    .await;
+    let service = DockerService::new();
+    let err = service.remove_image(&image.id).await.unwrap_err();
+    assert!(matches!(err, DockerError::Conflict { .. }), "{err:?}");
+    let inspect = service.inspect_image(&image.id).await.unwrap();
+    for tag in &image.tags {
+        assert!(inspect.details.repo_tags.contains(tag), "{tag} kept");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires Docker"]
+async fn remove_refuses_an_in_use_image_given_its_short_id() {
+    let image = TestImage::create("rm-short").await;
+    let _container = TestContainer::create_with(
+        "rm-short",
+        ContainerCreateBody {
+            image: Some(image.tags[0].clone()),
+            ..Default::default()
+        },
+    )
+    .await;
+    let service = DockerService::new();
+    let short = image.id.trim_start_matches("sha256:")[..12].to_owned();
+    let err = service.remove_image(&short).await.unwrap_err();
+    assert!(matches!(err, DockerError::Conflict { .. }), "{err:?}");
+    let inspect = service.inspect_image(&image.id).await.unwrap();
+    for tag in &image.tags {
+        assert!(inspect.details.repo_tags.contains(tag), "{tag} kept");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires Docker"]
+async fn remove_missing_image_is_ok() {
+    let image = TestImage::create("rm-twice").await;
+    let service = DockerService::new();
+    service.remove_image(&image.id).await.unwrap();
+    service.remove_image(&image.id).await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires Docker"]
+async fn remove_dangling_image_by_id() {
+    let image = TestImage::dangling("rm-dangling").await;
+    let service = DockerService::new();
+    service.remove_image(&image.id).await.unwrap();
+    assert!(matches!(
+        service.inspect_image(&image.id).await,
+        Err(DockerError::NotFound)
+    ));
 }
 
 #[tokio::test]
@@ -656,4 +842,14 @@ async fn stats_restart_starts_a_new_stream() {
     stats
         .sample(Duration::from_secs(5), |s| s.stream_start)
         .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires Docker"]
+async fn build_cache_usage_reads_without_error() {
+    // Read-only: pruning would delete the host's real build cache.
+    let usage = DockerService::new().build_cache_usage().await.unwrap();
+    if let (Some(size), Some(reclaimable)) = (usage.size, usage.reclaimable) {
+        assert!(reclaimable <= size, "{usage:?}");
+    }
 }

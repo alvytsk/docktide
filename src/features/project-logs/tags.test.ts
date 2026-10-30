@@ -10,6 +10,7 @@ const member = (service: string, number: number | null, patch: Partial<Container
     state: "running",
     status: "Up",
     ports: [],
+    imageId: "sha256:abc",
     createdAt: 0,
     compose: { project: "shop", service, number, oneOff: false },
     ...patch,

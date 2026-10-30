@@ -2,6 +2,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { LiveUpdate } from "@/bindings/LiveUpdate";
 import { connectionQueryKey } from "@/features/connection/use-connection-status";
 import { containerQueryKey, containersQueryKey } from "@/features/containers/use-containers";
+import { imagesQueryKey } from "@/features/images/use-images";
 
 /** Refetches what a hint from the events supervisor says may have changed (spec M1 FR-2). */
 export async function applyLiveUpdate(queryClient: QueryClient, update: LiveUpdate) {
@@ -17,6 +18,12 @@ export async function applyLiveUpdate(queryClient: QueryClient, update: LiveUpda
         ...update.ids.map((id) =>
           queryClient.invalidateQueries({ queryKey: containerQueryKey(id) }),
         ),
+      ]);
+      return;
+    case "imagesChanged":
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: imagesQueryKey }),
+        queryClient.invalidateQueries({ queryKey: ["image"] }),
       ]);
   }
 }

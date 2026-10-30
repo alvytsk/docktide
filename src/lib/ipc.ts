@@ -1,8 +1,12 @@
 // The only module that calls invoke(). Rejections are normalized to IpcError.
 import { Channel, invoke, type InvokeArgs } from "@tauri-apps/api/core";
+import type { BuildCachePruneResult } from "@/bindings/BuildCachePruneResult";
+import type { BuildCacheUsage } from "@/bindings/BuildCacheUsage";
 import type { ConnectionStatus } from "@/bindings/ConnectionStatus";
 import type { ContainerInspect } from "@/bindings/ContainerInspect";
 import type { ContainerSummary } from "@/bindings/ContainerSummary";
+import type { ImageInspect } from "@/bindings/ImageInspect";
+import type { ImageSummary } from "@/bindings/ImageSummary";
 import type { IpcError } from "@/bindings/IpcError";
 import type { LiveUpdate } from "@/bindings/LiveUpdate";
 import type { LogEvent } from "@/bindings/LogEvent";
@@ -35,6 +39,11 @@ export const listContainers = () => call<ContainerSummary[]>("list_containers");
 export const getContainer = (id: string) => call<ContainerInspect>("get_container", { id });
 export const runContainerAction = (action: ContainerAction, id: string) =>
   call<null>(`${action}_container`, { id });
+export const listImages = () => call<ImageSummary[]>("list_images");
+export const getImage = (id: string) => call<ImageInspect>("get_image", { id });
+export const removeImage = (id: string) => call<null>("remove_image", { id });
+export const getBuildCacheUsage = () => call<BuildCacheUsage>("get_build_cache_usage");
+export const pruneBuildCache = () => call<BuildCachePruneResult>("prune_build_cache");
 /**
  * Follows a container's logs. `tail` is a line count or `null` for all; `after`
  * resumes after the last shown line's timestamp. Resolves to the id for `closeLogs`.

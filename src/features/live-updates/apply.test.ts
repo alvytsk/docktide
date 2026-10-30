@@ -2,6 +2,7 @@ import { QueryClient, type QueryKey } from "@tanstack/react-query";
 import { describe, expect, test } from "vite-plus/test";
 import { connectionQueryKey } from "@/features/connection/use-connection-status";
 import { containerQueryKey, containersQueryKey } from "@/features/containers/use-containers";
+import { buildCacheQueryKey, imageQueryKey, imagesQueryKey } from "@/features/images/use-images";
 import { applyLiveUpdate } from "./apply";
 
 function seeded() {
@@ -11,6 +12,9 @@ function seeded() {
     containersQueryKey,
     containerQueryKey("a"),
     containerQueryKey("b"),
+    imagesQueryKey,
+    imageQueryKey("x"),
+    buildCacheQueryKey,
   ]) {
     queryClient.setQueryData(key, {});
   }
@@ -29,7 +33,7 @@ describe("applyLiveUpdate", () => {
   test("connected invalidates everything, since events were missed", async () => {
     const queryClient = seeded();
     await applyLiveUpdate(queryClient, { type: "connected" });
-    expect(invalidated(queryClient)).toHaveLength(4);
+    expect(invalidated(queryClient)).toHaveLength(7);
   });
 
   test("disconnected invalidates only the connection status", async () => {
@@ -45,5 +49,11 @@ describe("applyLiveUpdate", () => {
     const queryClient = seeded();
     await applyLiveUpdate(queryClient, { type: "containersChanged", ids: ["a"] });
     expect(invalidated(queryClient)).toEqual([containersQueryKey, containerQueryKey("a")]);
+  });
+
+  test("imagesChanged invalidates the images list and every image", async () => {
+    const queryClient = seeded();
+    await applyLiveUpdate(queryClient, { type: "imagesChanged" });
+    expect(invalidated(queryClient)).toEqual([imagesQueryKey, imageQueryKey("x")]);
   });
 });

@@ -13,6 +13,10 @@ import { OverviewTab } from "@/features/container-details/overview-tab";
 import { LogsTab } from "@/features/logs/logs-tab";
 import { StatsTab } from "@/features/stats/stats-tab";
 import { ContainersPage } from "@/features/containers/containers-page";
+import { ImageInspectTab } from "@/features/images/image-inspect-tab";
+import { ImageOverviewTab } from "@/features/images/image-overview-tab";
+import { ImagePage } from "@/features/images/image-page";
+import { ImagesPage } from "@/features/images/images-page";
 import { ProjectLogsPage } from "@/features/project-logs/project-logs-page";
 import { useDetailsTab, type DetailsTab } from "@/stores/details-tab";
 import { NotFound, Shell } from "./shell";
@@ -97,6 +101,44 @@ const projectLogsRoute = createRoute({
   component: ProjectLogsPage,
 });
 
+const imagesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "images",
+  component: Outlet,
+});
+
+const imageListRoute = createRoute({
+  getParentRoute: () => imagesRoute,
+  path: "/",
+  component: ImagesPage,
+});
+
+const imageRoute = createRoute({
+  getParentRoute: () => imagesRoute,
+  path: "$id",
+  component: ImagePage,
+});
+
+const imageIndexRoute = createRoute({
+  getParentRoute: () => imageRoute,
+  path: "/",
+  beforeLoad: ({ params }) => {
+    throw redirect({ to: "/images/$id/overview", params, replace: true });
+  },
+});
+
+const imageOverviewRoute = createRoute({
+  getParentRoute: () => imageRoute,
+  path: "overview",
+  component: ImageOverviewTab,
+});
+
+const imageInspectRoute = createRoute({
+  getParentRoute: () => imageRoute,
+  path: "inspect",
+  component: ImageInspectTab,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   containersRoute.addChildren([
@@ -108,6 +150,10 @@ const routeTree = rootRoute.addChildren([
       logsRoute,
       inspectRoute,
     ]),
+  ]),
+  imagesRoute.addChildren([
+    imageListRoute,
+    imageRoute.addChildren([imageIndexRoute, imageOverviewRoute, imageInspectRoute]),
   ]),
   projectLogsRoute,
 ]);

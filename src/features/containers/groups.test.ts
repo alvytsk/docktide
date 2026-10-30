@@ -12,6 +12,7 @@ const standalone = (name: string, patch: Partial<ContainerSummary> = {}): Contai
   state: "running",
   status: "Up",
   ports: [],
+  imageId: "sha256:abc",
   createdAt: 0,
   compose: null,
   ...patch,

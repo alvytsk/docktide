@@ -4,4 +4,4 @@ import type { IpcError } from "./IpcError";
 /**
  * Tells the frontend what to refetch. Carries no Docker data itself.
  */
-export type LiveUpdate = { "type": "connected" } | { "type": "disconnected", error: IpcError, } | { "type": "containersChanged", ids: Array<string>, };
+export type LiveUpdate = { "type": "connected" } | { "type": "disconnected", error: IpcError, } | { "type": "containersChanged", ids: Array<string>, } | { "type": "imagesChanged" };

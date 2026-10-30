@@ -5,7 +5,6 @@ import { ConnectionIndicator } from "@/features/connection/connection-indicator"
 import { cn } from "@/lib/utils";
 
 const UPCOMING: [string, LucideIcon][] = [
-  ["Images", Layers],
   ["Volumes", HardDrive],
   ["Networks", Network],
   ["Monitoring", Activity],
@@ -17,6 +16,7 @@ export function Sidebar() {
   const { pathname } = useLocation();
   // A project's logs belong to the container list too.
   const containersActive = pathname.startsWith("/containers") || pathname.startsWith("/projects");
+  const imagesActive = pathname.startsWith("/images");
   return (
     <aside className="flex w-56 shrink-0 flex-col bg-sidebar text-sidebar-foreground">
       <div className="px-6 pt-6 pb-5 text-[1.05rem] font-semibold tracking-tight">Docktide</div>
@@ -32,6 +32,18 @@ export function Sidebar() {
         >
           <Box className="size-4" aria-hidden />
           Containers
+        </Link>
+        <Link
+          to="/images"
+          aria-current={imagesActive ? "page" : undefined}
+          className={cn(
+            itemClass,
+            "focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+            imagesActive && "bg-sidebar-primary font-medium text-sidebar-primary-foreground",
+          )}
+        >
+          <Layers className="size-4" aria-hidden />
+          Images
         </Link>
         {UPCOMING.map(([label, Icon]) => (
           <Tooltip key={label}>
