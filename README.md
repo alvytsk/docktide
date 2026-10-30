@@ -1,5 +1,9 @@
 # Docktide
 
+[![CI](https://github.com/alvytsk/docktide/actions/workflows/ci.yml/badge.svg)](https://github.com/alvytsk/docktide/actions/workflows/ci.yml)
+[![Security audit](https://github.com/alvytsk/docktide/actions/workflows/audit.yml/badge.svg)](https://github.com/alvytsk/docktide/actions/workflows/audit.yml)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](#license)
+
 A modern, lightweight, Linux-first Docker manager with integrated real-time monitoring.
 
 > **Status: pre-alpha.** Milestones M0 (foundation), M1 (live updates, details,
@@ -44,6 +48,25 @@ See the [M4 specification](docs/specifications/m4-images.md), the
 [M1 specification](docs/specifications/m1-live-details-logs.md), the
 [M0 specification](docs/specifications/m0-foundation.md), and the
 [roadmap](docs/architecture/overview.md#10-roadmap-tentative).
+
+## Install
+
+Each [GitHub Release](https://github.com/alvytsk/docktide/releases), from the
+first one on, carries x86_64 Linux bundles and a `SHA256SUMS` file. Verify the
+download first:
+
+```sh
+sha256sum -c SHA256SUMS --ignore-missing
+```
+
+```sh
+sudo apt install ./Docktide_<version>_amd64.deb        # Debian, Ubuntu
+sudo dnf install ./Docktide-<version>-1.x86_64.rpm     # Fedora, RHEL
+chmod +x Docktide_<version>_amd64.AppImage && ./Docktide_<version>_amd64.AppImage
+```
+
+Bundles are built on Ubuntu 22.04. Every CI run on `main` also uploads them
+as a workflow artifact. To build from source, see [Development](#development).
 
 ## Requirements
 
@@ -131,6 +154,22 @@ DOCKER_HOST=unix:///tmp/docktide-nonexistent.sock pnpm tauri dev   # Docker not 
 DOCKER_HOST=tcp://127.0.0.1:2375 pnpm tauri dev                     # unsupported endpoint
 ```
 
+### CI and releases
+
+GitHub Actions runs on every pull request and push to `main`:
+
+| Workflow                                       | What it does                                                                                                       |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| [`ci.yml`](.github/workflows/ci.yml)           | `cargo fmt`, clippy, `cargo test`, `cargo doc`; `pnpm check`, `typecheck`, `test`, `build`; then the Linux bundles |
+| [`bundle.yml`](.github/workflows/bundle.yml)   | `pnpm tauri build` on Ubuntu 22.04: `.deb`, `.rpm`, AppImage, and `SHA256SUMS`, uploaded as an artifact            |
+| [`audit.yml`](.github/workflows/audit.yml)     | `cargo audit` and `pnpm audit --prod`, weekly and whenever a lockfile changes                                      |
+| [`release.yml`](.github/workflows/release.yml) | On a `v*` tag on `main`: checks versions and the changelog, builds the bundles, publishes a GitHub prerelease      |
+
+Tests that need a real Docker Engine do not run in CI. Run them locally before
+merging changes to `docktide-core`.
+
+To release, follow the steps at the top of [CHANGELOG.md](CHANGELOG.md).
+
 ## Architecture
 
 - [Architecture overview](docs/architecture/overview.md)
@@ -141,6 +180,8 @@ DOCKER_HOST=tcp://127.0.0.1:2375 pnpm tauri dev                     # unsupporte
 
 Docktide is developed specification-first. Substantial features start with a spec
 in `docs/specifications/`, and significant decisions are recorded as ADRs.
+User-visible changes go in [CHANGELOG.md](CHANGELOG.md). Report security issues
+as described in [SECURITY.md](SECURITY.md).
 
 ## License
 

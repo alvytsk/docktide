@@ -1,0 +1,37 @@
+name: Security audit
+
+on:
+  schedule:
+    - cron: "0 8 * * 1" # every Monday at 08:00 UTC
+  push:
+    paths: ["Cargo.lock", "pnpm-lock.yaml"]
+  pull_request:
+    paths: ["Cargo.lock", "pnpm-lock.yaml"]
+
+# audit-check reports through a check run on push and pull_request, and
+# opens an issue per advisory on the scheduled run.
+permissions:
+  contents: read
+  checks: write
+  issues: write
+
+jobs:
+  cargo:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  pnpm:
+    name: pnpm audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - run: pnpm audit --prod
